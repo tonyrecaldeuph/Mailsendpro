@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Mailer Pro — Envío Masivo de Correos",
+  "description": "Enviar emails masivos con imágenes y listas de Excel desde cualquier navegador.",
+  "version": "1.1.0",
+  "permissions": ["storage", "unlimitedStorage", "alarms"],
+  "host_permissions": [
+    "https://script.google.com/*",
+    "https://script.googleusercontent.com/*",
+    "https://licencias.anomalydevs.qzz.io/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "ui/dashboard.html",
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "assets/icon16.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "mailer-pro@extension",
+      "strict_min_version": "121.0"
+    }
+  }
+}

@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mailer Pro - Dashboard</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="dashboard.css">
+</head>
+<body class="theme-dark">
+  <div class="dashboard-container">
+    <!-- Header Navigation -->
+    <header class="dashboard-header">
+      <div class="header-logo">
+        <img src="../assets/logo_uphone.png" alt="Mailer Pro" style="height: 28px; width: auto; object-fit: contain;">
+      </div>
+      <nav class="nav-links">
+        <a href="#" class="nav-item" id="nav-configuracion">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> Configuración
+        </a>
+        <a href="#" class="nav-item" id="nav-soporte">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" x2="12.01" y1="17" y2="17"/></svg> Soporte
+        </a>
+        <a href="#" class="nav-item" id="nav-licencia">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Licencia
+        </a>
+      </nav>
+      <div class="header-actions">
+        <span style="font-size: 0.7rem; font-weight: 700; color: var(--color-accent); letter-spacing: 0.5px; padding: 2px 7px; border: 1px solid var(--color-accent); border-radius: 999px; line-height: 1;">v1.1</span>
+      </div>
+    </header>
+
+    <main class="dashboard-content">
+      <!-- Destinatarios -->
+      <section class="section section-contacts">
+        <div class="section-header">
+          <div class="title-with-icon">
+            <span class="section-icon">📇</span>
+            <h2>Destinatarios</h2>
+          </div>
+          <div class="contacts-actions">
+            <span id="recipient-count" class="badge">0 destinatarios cargados</span>
+            <button class="btn btn-muted btn-import" id="btn-import">
+              <span class="icon">📊</span> Importar Excel
+            </button>
+            <input type="file" id="file-import" accept=".xlsx,.xls" style="display: none;">
+            <button class="btn btn-danger-outline" id="btn-clear-list" title="Limpiar destinatarios">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="option-hint" style="margin-bottom: var(--spacing-sm);">
+          El archivo debe tener una columna <strong>CORREO CLIENTE</strong> (o "email") en la primera fila. Cualquier otra columna (ej. NOMBRE CLIENTE, MONTO POR COBRAR) queda disponible como variable del mensaje.
+        </div>
+
+        <div id="contacts-list" class="contacts-list">
+          <div id="contacts-header" class="contact-row contact-row-header" style="display: none;"></div>
+          <div style="text-align: center; color: var(--text-muted); padding: 20px;">
+            No hay destinatarios cargados. Importa un Excel para comenzar.
+          </div>
+        </div>
+      </section>
+
+      <!-- Mensaje -->
+      <section class="section section-mensaje">
+        <div class="section-header">
+          <div class="title-with-icon">
+            <span class="section-icon">✉️</span>
+            <h2>Mensaje</h2>
+          </div>
+        </div>
+
+        <div class="message-editor">
+          <input id="subject" type="text" placeholder="Asunto del correo — admite variables, ej: {NOMBRE CLIENTE}, ¡tenemos algo para ti!">
+
+          <textarea id="message" placeholder="Hola {NOMBRE CLIENTE},&#10;Tu monto por cobrar es {MONTO POR COBRAR}..." style="min-height: 100px;"></textarea>
+
+          <div id="variables-container" class="variables-hint" style="display: none;">
+            <span class="hint-label">Variables detectadas (clic para insertar):</span>
+            <div id="variable-tags" class="tags-list"></div>
+          </div>
+
+          <div class="image-upload-container" style="display: flex; flex-direction: column; gap: var(--spacing-sm); background: var(--bg-secondary); border: 1px dashed var(--border-color); border-radius: var(--radius-sm); padding: var(--spacing-md);">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md);">
+              <div style="display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 0.85rem;">
+                <span style="font-size: 1.1rem;">🖼️</span>
+                <span style="font-weight: 500;">Imagen adjunta:</span>
+                <input type="file" id="input-imagen" accept="image/png,image/jpeg,image/gif,image/webp" style="display: none;">
+                <button class="btn btn-muted" id="btn-cargar-imagen" style="padding: 4px 10px; font-size: 0.75rem; height: 26px;">Seleccionar imagen</button>
+              </div>
+              <button class="btn btn-danger-outline" id="btn-quitar-imagen" style="display: none; padding: 4px 8px; font-size: 0.75rem; height: 24px;">Eliminar</button>
+            </div>
+            <div id="preview-imagen-container" style="display: none; text-align: center; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--border-color);">
+              <img id="preview-imagen" src="" alt="Vista previa" style="max-height: 100px; max-width: 100%; border-radius: var(--radius-sm); border: 1px solid var(--border-color); object-fit: contain;">
+            </div>
+          </div>
+
+          <div class="image-upload-container" style="display: flex; flex-direction: column; gap: var(--spacing-sm); background: var(--bg-secondary); border: 1px dashed var(--border-color); border-radius: var(--radius-sm); padding: var(--spacing-md);">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md);">
+              <div style="display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 0.85rem;">
+                <span style="font-size: 1.1rem;">📎</span>
+                <span style="font-weight: 500;">Archivos PDF adjuntos:</span>
+                <input type="file" id="input-pdfs" accept="application/pdf,.pdf" multiple style="display: none;">
+                <button class="btn btn-muted" id="btn-cargar-pdfs" style="padding: 4px 10px; font-size: 0.75rem; height: 26px;">Agregar PDF</button>
+              </div>
+            </div>
+            <div class="option-hint">Hasta 3 archivos, 5MB cada uno. Se envían como adjunto real (no se embeben en el cuerpo).</div>
+            <div id="pdf-list" class="chips-container" style="display: none;"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Opciones de envío -->
+      <section class="section section-send-options">
+        <div class="section-header">
+          <div class="title-with-icon">
+            <span class="section-icon">⚙️</span>
+            <h2>Opciones de envío</h2>
+          </div>
+        </div>
+        <div class="option-card">
+          <div class="option-card-header">
+            <span class="option-card-title">⏱️ Intervalo entre envíos</span>
+          </div>
+          <div class="option-card-body">
+            <label style="display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--text-muted); width: 120px;">
+              Segundos
+              <input type="number" id="delaySeconds" min="1" max="60" value="10" style="padding: 6px 8px; background: var(--bg-secondary); color: white; border: 1px solid var(--border-color); border-radius: var(--radius-sm); outline: none;">
+            </label>
+            <div class="option-hint" style="margin-top: 6px;">Pausa fija entre cada envío para reducir el riesgo de bloqueo por parte de Gmail.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Progreso -->
+      <section class="section section-progress" id="progress-section" style="display: none;">
+        <div class="progress-wrap">
+          <div class="range-slider" style="position: relative; height: 8px; border-radius: 4px; overflow: hidden;">
+            <span id="progressBar" style="display: block; height: 100%; width: 0%; background: var(--color-accent); transition: width 0.3s ease;"></span>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-top: 6px;">
+            <span id="statusText" style="font-size: 0.85rem; color: var(--text-muted);">Listo para despegar</span>
+            <span id="progressText" style="font-size: 0.85rem; color: var(--color-accent); font-weight: 700;">0%</span>
+          </div>
+        </div>
+
+        <div id="errorsContainer" style="display: none; margin-top: var(--spacing-md);">
+          <button id="toggleErrorsBtn" class="btn btn-muted" style="width: 100%; background: #2a1414; color: #f87171; border-color: #7f1d1d;">Ver Errores (0)</button>
+          <div id="errorsList" class="errors-list" style="display: none; margin-top: var(--spacing-sm);"></div>
+          <button id="copyErrorsBtn" class="btn btn-muted" style="width: 100%; margin-top: var(--spacing-sm); display: none;">Copiar Correos Fallidos</button>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer Actions -->
+    <footer class="dashboard-footer">
+      <div class="footer-left">
+        <span id="license-badge" class="badge" style="cursor: pointer;" title="Ver estado de la licencia">Verificando licencia...</span>
+      </div>
+      <div class="footer-right">
+        <button class="btn btn-danger-stop btn-large" id="btn-cancelar" style="display: none;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></svg> Cancelar
+        </button>
+        <button class="btn btn-warning-pause btn-large" id="btn-pausar" style="display: none;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none" class="icon"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg> Pausar
+        </button>
+        <button class="btn btn-success-resume btn-large" id="btn-reanudar" style="display: none;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none" class="icon"><polygon points="5 3 19 12 5 21 5 3"/></svg> Reanudar
+        </button>
+        <button class="btn btn-muted btn-large" id="btn-reiniciar" style="display: none;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg> Reiniciar
+        </button>
+        <button class="btn btn-accent btn-large" id="btn-enviar" disabled>
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><line x1="22" x2="11" y1="2" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Iniciar Campaña
+        </button>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Modales -->
+  <div id="modal-configuracion" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Configuración — Enlace Mágico</h2>
+        <button class="btn-close">×</button>
+      </div>
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
+        <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">URL de tu Aplicación Web (Google Script)</label>
+        <div style="position: relative;">
+          <input id="apiKey" type="password" placeholder="https://script.google.com/macros/..." style="width: 100%; padding: 10px; padding-right: 40px; background: var(--bg-tertiary); color: white; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+          <button id="togglePass" type="button" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: transparent; border: none; font-size: 1.1rem; cursor: pointer;">👁️</button>
+        </div>
+
+        <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Token de Seguridad (opcional — solo si tu Code.gs exige un SHARED_TOKEN propio)</label>
+        <div style="position: relative;">
+          <input id="apiToken" type="password" placeholder="Token configurado en el script" style="width: 100%; padding: 10px; padding-right: 40px; background: var(--bg-tertiary); color: white; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+          <button id="toggleToken" type="button" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: transparent; border: none; font-size: 1.1rem; cursor: pointer;">👁️</button>
+        </div>
+
+        <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Nombre visible del Remitente</label>
+        <input id="smtpFrom" type="text" placeholder="Mi Empresa S.A." maxlength="100" style="padding: 10px; background: var(--bg-tertiary); color: white; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+
+        <button class="btn btn-accent btn-full" id="btn-cerrar-configuracion">Listo</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-soporte" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Soporte Técnico</h2>
+        <button class="btn-close">×</button>
+      </div>
+      <div class="modal-body" style="text-align: center; padding: 30px;">
+        <div style="font-size: 2rem; margin-bottom: 15px;">📞</div>
+        <p style="color: var(--text-muted); line-height: 1.8; font-size: 0.95rem;">
+          En caso de generarse alguna duda o requerimiento,<br>
+          favor escribir o llamar al desarrollador encargado:
+        </p>
+        <div style="margin-top: 20px; padding: 15px; background: var(--bg-tertiary); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+          <p style="font-weight: 600; font-size: 1.1rem; color: var(--text-main); margin-bottom: 5px;">Alexis Pillajo</p>
+          <p style="color: var(--color-accent); font-size: 1rem; font-weight: 500;">📱 0980964513</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-licencia" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Licencia</h2>
+        <button class="btn-close">×</button>
+      </div>
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
+        <div id="license-info" style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.6; white-space: pre-line;"></div>
+        <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Clave de licencia</label>
+        <input type="text" id="input-license-key" placeholder="UPHONE-XXXX-XXXX-XXXX" style="padding: 10px; background: var(--bg-tertiary); color: white; border: 1px solid var(--border-color); border-radius: 5px; font-family: monospace; letter-spacing: 0.5px;">
+        <button class="btn btn-accent btn-full" id="btn-activar-licencia">Activar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="lib/xlsx.js"></script>
+  <script src="dataProcessor.js"></script>
+  <script type="module" src="dashboard.js"></script>
+</body>
+</html>
