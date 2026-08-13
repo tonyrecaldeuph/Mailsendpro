@@ -23,6 +23,19 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Chrome mata un service worker MV3 tras ~30s sin llamadas a APIs de
+ * extensión, y un setTimeout encadenado NO cuenta como actividad. Durante el
+ * envío eso no importa (cada correo hace fetch y actualiza el badge), pero la
+ * pausa por cuota agotada puede durar minutos mientras el usuario conecta la
+ * segunda cuenta: ahí el bucle solo dormiría, el worker moriría, y al reanudar
+ * no quedaría ningún bucle vivo que despertar. Esta llamada trivial reinicia
+ * el temporizador de inactividad.
+ */
+function keepAlive() {
+  return chrome.runtime.getPlatformInfo().catch(() => { });
+}
+
 // Mismos alias que ui/dataProcessor.js: el contacto conserva el nombre de
 // columna original del Excel (ej. "CORREO CLIENTE"), así que el envío debe
 // resolver dinámicamente cuál campo es el email en vez de asumir `.email`.
@@ -117,6 +130,7 @@ async function sendEmails(payload) {
 
     while (isPaused) {
       if (isCancelled) break;
+      await keepAlive();
       await sleep(500);
     }
     if (isCancelled) break;
@@ -156,6 +170,7 @@ async function sendEmails(payload) {
       const steps = delayMs / 500;
       for (let s = 0; s < steps; s++) {
         if (isCancelled || isPaused) break;
+        await keepAlive();
         await sleep(500);
       }
     }
@@ -345,6 +360,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.action === 'resumeSend') {
+    // Sin bucle vivo no hay nada que despertar: bajar las banderas dejaría la
+    // UI en "enviando" para siempre. Mejor decirlo que fingir que continúa.
+    if (!sendInProgress) {
+      sendResponse({ success: false, error: 'La campaña ya no está en curso. Vuelve a iniciarla con los destinatarios que falten.' });
+      return true;
+    }
     isPaused = false;
     quotaExhausted = false;
     pausedAccount = null;

@@ -644,6 +644,7 @@ function resumeCampaign() {
 function cancelCampaign() {
   if (!confirm('¿Seguro que deseas cancelar la campaña? Los correos ya enviados no se pueden deshacer.')) return;
   chrome.runtime.sendMessage({ action: 'cancelSend' }, () => {});
+  hideQuotaBanner();
   setUIState('finished');
   statusText.textContent = '🛑 Campaña cancelada.';
 }
@@ -742,12 +743,18 @@ btnDesconectarGmail.addEventListener('click', () => {
 });
 
 // ─── Relevo de cuenta por cuota agotada ──────────────────────────────────────
-function showQuotaBanner(account, current, total) {
+function showQuotaBanner(account, current, total, detail) {
+  // El motivo real puede no ser la cuota: un token revocado o el rate limit
+  // agotado tras los reintentos también pausan la campaña, y decir siempre
+  // "límite diario" mandaría al usuario a buscar el problema donde no está.
   quotaBannerText.textContent =
-    `Límite diario alcanzado en ${account || 'la cuenta conectada'} — se enviaron ${current} de ${total}. ` +
+    `${detail || 'Límite diario alcanzado'} en ${account || 'la cuenta conectada'} — se enviaron ${current} de ${total}. ` +
     `Conectá otra cuenta para continuar desde donde quedó.`;
   quotaBanner.style.display = '';
   setUIState('paused');
+  // Reanudar con la misma cuenta volvería a chocar contra el mismo error: la
+  // única salida útil es el botón del banner.
+  resumeBtn.style.display = 'none';
 }
 
 function hideQuotaBanner() {
@@ -766,11 +773,18 @@ btnRelevoCuenta.addEventListener('click', () => {
     }
     gmailAccount = result.email || null;
     renderGmailStatus();
-    hideQuotaBanner();
-    chrome.runtime.sendMessage({ action: 'resumeSend' }, () => {});
-    isPaused = false;
-    setUIState('running');
-    statusText.textContent = `▶️ Continuando desde ${gmailAccount}...`;
+    chrome.runtime.sendMessage({ action: 'resumeSend' }, (resumed) => {
+      if (chrome.runtime.lastError || !resumed?.success) {
+        alert(resumed?.error || 'No se pudo reanudar la campaña.');
+        hideQuotaBanner();
+        setUIState('finished');
+        return;
+      }
+      hideQuotaBanner();
+      isPaused = false;
+      setUIState('running');
+      statusText.textContent = `▶️ Continuando desde ${gmailAccount}...`;
+    });
   });
 });
 
@@ -909,7 +923,7 @@ chrome.runtime.onMessage.addListener((message) => {
     campaignRunning = true;
     isPaused = true;
     setProgress(message.current, message.total, message.status, message.failedEmails || []);
-    showQuotaBanner(message.account, message.current, message.total);
+    showQuotaBanner(message.account, message.current, message.total, message.detail);
   }
 });
 
