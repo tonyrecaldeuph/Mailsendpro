@@ -91,6 +91,59 @@ test('los saltos de línea y barras en el nombre de archivo se sanitizan', () =>
   assert.match(mime, /filename="fac__tura_2026\.pdf"/);
 });
 
+test('un nombre de archivo con tildes usa el parámetro extendido RFC 2231', () => {
+  const mime = buildMimeMessage({
+    ...base,
+    attachments: [{ filename: 'informe_período.pdf', mimeType: 'application/pdf', base64: 'QkJCQg==' }]
+  });
+  // Un encoded-word RFC 2047 entre comillas llegaría crudo al destinatario.
+  assert.ok(!mime.includes('filename="=?UTF-8?B?'));
+  assert.match(mime, /filename\*=UTF-8''informe_per%C3%ADodo\.pdf/);
+  assert.match(mime, /name\*=UTF-8''informe_per%C3%ADodo\.pdf/);
+});
+
+test('un adjunto sin mimeType no produce "Content-Type: undefined"', () => {
+  const mime = buildMimeMessage({
+    ...base,
+    attachments: [{ filename: 'documento.pdf', base64: 'QkJCQg==' }]
+  });
+  assert.ok(!mime.includes('undefined'));
+  assert.match(mime, /Content-Type: application\/octet-stream; name="documento\.pdf"/);
+});
+
+test('un CRLF en el destinatario no puede inyectar cabeceras', () => {
+  const mime = buildMimeMessage({
+    ...base,
+    to: 'cliente@ejemplo.com\r\nBcc: atacante@evil.com'
+  });
+  // El texto sigue ahí, pero aplastado dentro del To: — nunca como cabecera propia.
+  assert.ok(!/\r\nBcc:/.test(mime));
+  assert.match(mime, /\r\nTo: cliente@ejemplo\.comBcc: atacante@evil\.com\r\n/);
+});
+
+test('un CRLF en la dirección del remitente tampoco inyecta cabeceras', () => {
+  const mime = buildMimeMessage({
+    ...base,
+    fromName: '',
+    fromEmail: 'cobranzas@empresa.com\r\nBcc: atacante@evil.com'
+  });
+  assert.ok(!/\r\nBcc:/.test(mime));
+});
+
+test('los tres PDFs permitidos viajan como partes separadas', () => {
+  const pdf = (n) => ({ filename: `factura${n}.pdf`, mimeType: 'application/pdf', base64: 'QkJCQg==' });
+  const mime = buildMimeMessage({ ...base, attachments: [pdf(1), pdf(2), pdf(3)] });
+  ['factura1.pdf', 'factura2.pdf', 'factura3.pdf'].forEach((name) => {
+    assert.match(mime, new RegExp(`filename="${name.replace('.', '\\.')}"`));
+  });
+  assert.equal(mime.split('--BOUNDARY_mix\r\n').length - 1, 4); // html + 3 PDFs
+});
+
+test('el cuerpo HTML con acentos sobrevive el roundtrip UTF-8', () => {
+  const mime = buildMimeMessage({ ...base, html: '<p>Notificación de cobranza: ñandú</p>' });
+  assert.equal(decodeBase64Body(mime), '<p>Notificación de cobranza: ñandú</p>');
+});
+
 test('wrapBase64 corta en líneas de 76 caracteres', () => {
   const lines = wrapBase64('A'.repeat(200)).split('\r\n');
   assert.equal(lines[0].length, 76);

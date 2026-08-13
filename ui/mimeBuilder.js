@@ -41,6 +41,33 @@ function sanitizeFilename(name) {
 }
 
 /**
+ * Un CRLF dentro de una dirección abriría una cabecera nueva en el mensaje
+ * ("Bcc: ..."). Hoy dataProcessor.js ya rechaza esas filas al importar el
+ * Excel, pero la garantía tiene que vivir también acá: este módulo es el
+ * único responsable de producir un RFC 2822 bien formado.
+ */
+function stripCRLF(value) {
+  return String(value || '').replace(/[\r\n]/g, '');
+}
+
+/** Escapa lo que encodeURIComponent deja pasar y RFC 2231 no permite. */
+function encodeRFC2231(value) {
+  return encodeURIComponent(value).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+/**
+ * RFC 2047 prohíbe un encoded-word dentro de un string entrecomillado, así que
+ * un nombre de archivo con tildes o ñ no puede ir como filename="=?UTF-8?B?…?=":
+ * el destinatario vería ese texto crudo. Para esos casos se usa el parámetro
+ * extendido de RFC 2231 (filename*=UTF-8''…), que sí decodifican los clientes.
+ */
+function filenameParam(param, name) {
+  return /^[\x20-\x7E]*$/.test(name)
+    ? `${param}="${name.replace(/"/g, '')}"`
+    : `${param}*=UTF-8''${encodeRFC2231(name)}`;
+}
+
+/**
  * Un encoded-word de RFC 2047 no puede ir dentro de un string entrecomillado,
  * así que el nombre se entrecomilla solo cuando es ASCII puro.
  */
@@ -66,16 +93,18 @@ function textHtmlPart(html) {
 
 function binaryPart({ filename, mimeType, base64 }, { inline, cid }) {
   const safeName = sanitizeFilename(filename);
-  const headerName = encodeHeaderWord(safeName);
+  // Sin fallback, un adjunto sin tipo generaba "Content-Type: undefined".
+  // Code.gs tenía este mismo default.
+  const type = mimeType || 'application/octet-stream';
   const lines = [
-    `Content-Type: ${mimeType}; name="${headerName}"`,
+    `Content-Type: ${type}; ${filenameParam('name', safeName)}`,
     'Content-Transfer-Encoding: base64'
   ];
   if (inline) {
     lines.push(`Content-ID: <${cid}>`);
-    lines.push(`Content-Disposition: inline; filename="${headerName}"`);
+    lines.push(`Content-Disposition: inline; ${filenameParam('filename', safeName)}`);
   } else {
-    lines.push(`Content-Disposition: attachment; filename="${headerName}"`);
+    lines.push(`Content-Disposition: attachment; ${filenameParam('filename', safeName)}`);
   }
   lines.push('', wrapBase64(base64));
   return lines.join(CRLF);
@@ -121,8 +150,8 @@ export function buildMimeMessage({
   boundaryFactory = defaultBoundaryFactory
 }) {
   const headers = [
-    `From: ${formatAddress(fromName, fromEmail)}`,
-    `To: ${to}`,
+    `From: ${formatAddress(fromName, stripCRLF(fromEmail))}`,
+    `To: ${stripCRLF(to)}`,
     `Subject: ${encodeHeaderWord(subject)}`,
     'MIME-Version: 1.0'
   ];
