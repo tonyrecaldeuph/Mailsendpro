@@ -38,13 +38,19 @@ const resumeBtn            = document.getElementById('btn-reanudar');
 const cancelBtn            = document.getElementById('btn-cancelar');
 const resetBtn            = document.getElementById('btn-reiniciar');
 
-// Configuración (antes "Enlace Mágico")
+// Configuración
 const navConfiguracion  = document.getElementById('nav-configuracion');
 const modalConfiguracion = document.getElementById('modal-configuracion');
 const btnCerrarConfiguracion = document.getElementById('btn-cerrar-configuracion');
-const apiKeyInput       = document.getElementById('apiKey');
-const apiTokenInput     = document.getElementById('apiToken');
+const gmailStatusEl     = document.getElementById('gmail-status');
+const btnConectarGmail  = document.getElementById('btn-conectar-gmail');
+const btnDesconectarGmail = document.getElementById('btn-desconectar-gmail');
 const smtpFrom          = document.getElementById('smtpFrom');
+
+// Relevo de cuenta por cuota agotada
+const quotaBanner       = document.getElementById('quota-banner');
+const quotaBannerText   = document.getElementById('quota-banner-text');
+const btnRelevoCuenta   = document.getElementById('btn-relevo-cuenta');
 
 // Soporte
 const navSoporte        = document.getElementById('nav-soporte');
@@ -68,6 +74,8 @@ let isPaused        = false;
 let currentFailedEmails = [];
 let isLicenseAllowed = false;
 let hasPromptedForLicense = false;
+let gmailAccount = null;
+let hasPromptedForGmail = false;
 
 // ─── Persistence ─────────────────────────────────────────────────────────────
 function saveState() {
@@ -76,20 +84,20 @@ function saveState() {
     message:    messageInput.value,
     delaySeconds: delaySeconds.value,
     smtpFrom:   smtpFrom.value,
-    apiKey:     apiKeyInput.value,
-    apiToken:   apiTokenInput.value,
     recipients
   });
 }
 
 function restoreState() {
+  // Restos del backend de Apps Script: se limpian una sola vez para no dejar
+  // la URL vieja dando vueltas en el storage del cliente.
+  chrome.storage.local.remove(['apiKey', 'apiToken']);
+
   chrome.storage.local.get(null, (state) => {
     if (state.subject       !== undefined) subjectInput.value   = state.subject;
     if (state.message       !== undefined) messageInput.value   = state.message;
     if (state.delaySeconds  !== undefined) delaySeconds.value   = state.delaySeconds;
     if (state.smtpFrom      !== undefined) smtpFrom.value       = state.smtpFrom;
-    if (state.apiKey !== undefined) apiKeyInput.value = state.apiKey;
-    if (state.apiToken !== undefined) apiTokenInput.value = state.apiToken;
 
     if (state.recipients && state.recipients.length) {
       recipients = state.recipients;
@@ -107,6 +115,9 @@ function restoreState() {
           campaignRunning = true;
           isPaused = response.isPaused || false;
           setUIState(response.isPaused ? 'paused' : 'running');
+          if (response.quotaExhausted) {
+            showQuotaBanner(response.pausedAccount, response.current, response.total);
+          }
         } else {
           setUIState('finished');
         }
@@ -536,8 +547,18 @@ async function handlePdfsChange(event) {
 }
 
 // ─── Campaign actions ─────────────────────────────────────────────────────────
+const MAX_TOTAL_ATTACHMENT_BYTES = 18 * 1024 * 1024;
+
 function updateSendButtonState() {
-  sendBtn.disabled = !(recipients.length > 0 && isLicenseAllowed && !campaignRunning);
+  sendBtn.disabled = !(recipients.length > 0 && isLicenseAllowed && !!gmailAccount && !campaignRunning);
+}
+
+/** Peso aproximado del adjunto a partir del data URL (base64 infla 4/3). */
+function estimateAttachmentBytes(list) {
+  return list.reduce((total, att) => {
+    const base64 = (att.dataUrl.split(',')[1] || '');
+    return total + Math.floor(base64.length * 0.75);
+  }, 0);
 }
 
 function startSend() {
@@ -549,13 +570,18 @@ function startSend() {
     alert('Necesitas una licencia activa para iniciar una campaña. Abre "Licencia" en el menú.');
     return;
   }
-  if (!apiKeyInput.value) {
-    alert('Configuración incompleta. Abre "Configuración" y pega la URL de Google Script.');
+  if (!gmailAccount) {
+    openModal(modalConfiguracion);
     return;
   }
-  // El Token de Seguridad es opcional: el backend estándar no lo valida (ver
-  // INSTRUCCIONES.md). Se sigue enviando si está cargado, por si el usuario
-  // configuró un SHARED_TOKEN propio en su copia del script.
+
+  // Gmail rechaza mensajes de más de 25 MB ya codificados; 18 MB de adjuntos
+  // crudos quedan en ~24 MB. Mejor avisar acá que fallar en cada destinatario.
+  const totalBytes = estimateAttachmentBytes([...attachments, ...pdfAttachments]);
+  if (totalBytes > MAX_TOTAL_ATTACHMENT_BYTES) {
+    alert(`Los adjuntos suman ${(totalBytes / 1048576).toFixed(1)} MB. Gmail no acepta más de 18 MB por correo — quita alguno.`);
+    return;
+  }
 
   currentFailedEmails = [];
   errorsContainer.style.display = 'none';
@@ -563,6 +589,7 @@ function startSend() {
   errorsList.innerHTML          = '';
   toggleErrorsBtn.textContent   = 'Ver Errores (0)';
   copyErrorsBtn.style.display   = 'none';
+  hideQuotaBanner();
 
   document.querySelectorAll('.contact-row-status').forEach((el) => {
     if (el.id?.startsWith('status-row-')) {
@@ -582,8 +609,6 @@ function startSend() {
   isPaused = false;
 
   const payload = {
-    apiKey:       apiKeyInput.value,
-    apiToken:     apiTokenInput.value,
     fromEmail:    smtpFrom.value.replace(/[\r\n]/g, '').slice(0, 100),
     recipients,
     subject:      subjectInput.value,
@@ -594,7 +619,11 @@ function startSend() {
 
   chrome.runtime.sendMessage({ action: 'startSend', payload }, (response) => {
     if (chrome.runtime.lastError) console.warn(chrome.runtime.lastError.message);
-    if (response?.error) alert('Error: ' + response.error);
+    if (response?.error) {
+      alert('Error: ' + response.error);
+      campaignRunning = false;
+      setUIState('idle');
+    }
   });
 }
 
@@ -654,6 +683,96 @@ navSoporte.addEventListener('click', (e) => { e.preventDefault(); openModal(moda
 
 navLicencia.addEventListener('click', (e) => { e.preventDefault(); openModal(modalLicencia); });
 licenseBadge.addEventListener('click', () => openModal(modalLicencia));
+
+// ─── Cuenta de Gmail ─────────────────────────────────────────────────────────
+// Todo el OAuth vive en el service worker: este popup se cierra al perder el
+// foco, y la ventana de consentimiento de Google se lo roba.
+function renderGmailStatus() {
+  if (gmailAccount) {
+    gmailStatusEl.textContent = `🟢 ${gmailAccount}`;
+    btnConectarGmail.textContent = 'Cambiar de cuenta';
+    btnDesconectarGmail.style.display = '';
+  } else {
+    gmailStatusEl.textContent = '🔴 Ninguna cuenta conectada';
+    btnConectarGmail.textContent = 'Conectar cuenta de Gmail';
+    btnDesconectarGmail.style.display = 'none';
+  }
+  updateSendButtonState();
+}
+
+function refreshGmailStatus() {
+  chrome.runtime.sendMessage({ action: 'GMAIL_STATUS' }, (result) => {
+    if (chrome.runtime.lastError || !result) return;
+    gmailAccount = result.connected ? result.email : null;
+    renderGmailStatus();
+
+    // Con licencia activa pero sin cuenta, el siguiente paso obvio es conectar.
+    if (!gmailAccount && isLicenseAllowed && !hasPromptedForGmail) {
+      hasPromptedForGmail = true;
+      openModal(modalConfiguracion);
+    }
+  });
+}
+
+function connectGmail({ selectAccount }) {
+  btnConectarGmail.disabled = true;
+  btnConectarGmail.textContent = 'Conectando...';
+  chrome.runtime.sendMessage({ action: 'GMAIL_CONNECT', selectAccount }, (result) => {
+    btnConectarGmail.disabled = false;
+    if (chrome.runtime.lastError || !result) {
+      renderGmailStatus();
+      alert('No se pudo completar la conexión con Google.');
+      return;
+    }
+    gmailAccount = result.email || null;
+    renderGmailStatus();
+    if (!result.connected) {
+      alert(result.error || 'No se pudo conectar la cuenta.');
+    }
+  });
+}
+
+btnConectarGmail.addEventListener('click', () => connectGmail({ selectAccount: !!gmailAccount }));
+
+btnDesconectarGmail.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ action: 'GMAIL_DISCONNECT' }, () => {
+    gmailAccount = null;
+    renderGmailStatus();
+  });
+});
+
+// ─── Relevo de cuenta por cuota agotada ──────────────────────────────────────
+function showQuotaBanner(account, current, total) {
+  quotaBannerText.textContent =
+    `Límite diario alcanzado en ${account || 'la cuenta conectada'} — se enviaron ${current} de ${total}. ` +
+    `Conectá otra cuenta para continuar desde donde quedó.`;
+  quotaBanner.style.display = '';
+  setUIState('paused');
+}
+
+function hideQuotaBanner() {
+  quotaBanner.style.display = 'none';
+}
+
+btnRelevoCuenta.addEventListener('click', () => {
+  btnRelevoCuenta.disabled = true;
+  btnRelevoCuenta.textContent = 'Conectando...';
+  chrome.runtime.sendMessage({ action: 'GMAIL_CONNECT', selectAccount: true }, (result) => {
+    btnRelevoCuenta.disabled = false;
+    btnRelevoCuenta.textContent = 'Conectar otra cuenta y continuar';
+    if (chrome.runtime.lastError || !result?.connected) {
+      alert(result?.error || 'No se pudo conectar la cuenta de relevo.');
+      return;
+    }
+    gmailAccount = result.email || null;
+    renderGmailStatus();
+    hideQuotaBanner();
+    chrome.runtime.sendMessage({ action: 'resumeSend' }, () => {});
+    isPaused = false;
+    setUIState('running');
+    statusText.textContent = `▶️ Continuando desde ${gmailAccount}...`;
+  });
+});
 
 // ─── Licencia ────────────────────────────────────────────────────────────────
 const LICENSE_REASON_TEXT = {
@@ -725,24 +844,6 @@ btnActivarLicencia.addEventListener('click', () => {
   });
 });
 
-// ─── Toggle password visibility ───────────────────────────────────────────────
-function attachToggle(btnId, inputEl) {
-  const btn = document.getElementById(btnId);
-  if (!btn) return;
-  btn.addEventListener('click', (e) => {
-    e.preventDefault();
-    if (inputEl.type === 'password') {
-      inputEl.type = 'text';
-      btn.textContent = '🙈';
-    } else {
-      inputEl.type = 'password';
-      btn.textContent = '👁️';
-    }
-  });
-}
-attachToggle('togglePass', apiKeyInput);
-attachToggle('toggleToken', apiTokenInput);
-
 // ─── Toggle error panel ───────────────────────────────────────────────────────
 toggleErrorsBtn.addEventListener('click', () => {
   const isVisible = errorsList.style.display !== 'none';
@@ -779,7 +880,7 @@ resumeBtn.addEventListener('click', resumeCampaign);
 cancelBtn.addEventListener('click', cancelCampaign);
 resetBtn.addEventListener('click', resetCampaign);
 
-const syncInputs = [subjectInput, messageInput, delaySeconds, smtpFrom, apiKeyInput, apiTokenInput];
+const syncInputs = [subjectInput, messageInput, delaySeconds, smtpFrom];
 syncInputs.forEach(el => {
   el.addEventListener('change', saveState);
   if (el.type !== 'checkbox') el.addEventListener('keyup', saveState);
@@ -803,10 +904,18 @@ chrome.runtime.onMessage.addListener((message) => {
       launchConfetti();
     }
   }
+
+  if (message?.action === 'quotaExhausted') {
+    campaignRunning = true;
+    isPaused = true;
+    setProgress(message.current, message.total, message.status, message.failedEmails || []);
+    showQuotaBanner(message.account, message.current, message.total);
+  }
 });
 
 // ─── Initialization ───────────────────────────────────────────────────────────
 setUIState('idle');
 restoreState();
 refreshLicenseStatus();
+refreshGmailStatus();
 setInterval(refreshLicenseStatus, 60000);
