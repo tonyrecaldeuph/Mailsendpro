@@ -4,6 +4,8 @@ import { buildMimeMessage } from './ui/mimeBuilder.js';
 import { classifyGmailError } from './ui/gmailErrors.js';
 import { getAccessToken, invalidateToken, connect, disconnect, detectActiveAccount, getConnectedAccount, AuthRequiredError } from './ui/gmailAuth.js';
 import { resolveEmail } from './ui/recipientFields.js';
+import { createCampaign, appendResult, summarize, tailLog, finalizeCampaign, RESULT_STATUS, CAMPAIGN_STATUS } from './ui/campaignLog.js';
+import { saveCurrent, loadCurrent, archive, listHistory, clearHistory } from './ui/historyStore.js';
 
 const LICENSE_VALIDATION_ALARM = 'licenseValidationAlarm';
 const LICENSE_VALIDATION_PERIOD_MIN = 360; // 6h
@@ -19,6 +21,12 @@ let isCancelled = false;
 let quotaExhausted = false;
 let pausedAccount = null;
 let currentProgress = { current: 0, total: 0, status: 'Listo', failedEmails: [] };
+
+// Registro de la campaña en curso. Vive en memoria mientras el worker está
+// vivo y se persiste después de cada correo: si Chrome lo recicla, el reporte
+// se puede reconstruir igual.
+let currentCampaign = null;
+const LIVE_LOG_LIMIT = 50;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -59,6 +67,27 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
+/**
+ * Si el worker murió a mitad de campaña, quedó una campaña "En curso" en
+ * storage que nadie cerró. Se archiva como Interrumpida —es el único camino
+ * por el que aparece ese estado— para que el usuario igual pueda descargar el
+ * reporte de lo que sí se envió.
+ */
+async function recoverInterruptedCampaign() {
+  const pending = await loadCurrent();
+  if (!pending) return;
+
+  const closed = finalizeCampaign(pending, {
+    status: CAMPAIGN_STATUS.INTERRUPTED,
+    finishedAt: Date.now(),
+    reason: 'El envío se interrumpió antes de llegar a este destinatario'
+  });
+  await archive(closed);
+  console.warn('[campaña] se archivó una campaña interrumpida:', closed.results.length, 'resultados');
+}
+
+recoverInterruptedCampaign().catch((err) => console.warn('[campaña] recuperación falló:', err?.message || err));
+
 // ────────────────────────────────────────────────────────────
 // Envío de campaña
 // ────────────────────────────────────────────────────────────
@@ -87,6 +116,14 @@ async function sendEmails(payload) {
   quotaExhausted = false;
   pausedAccount = null;
   currentProgress.failedEmails = [];
+
+  currentCampaign = createCampaign({
+    total: payload.recipients.length,
+    account: account.email,
+    subject: payload.subject || '',
+    startedAt: Date.now()
+  });
+  await saveCurrent(currentCampaign);
 
   const { fromEmail, recipients, subject, message, attachments, delaySeconds } = payload;
   let successCount = 0;
@@ -135,10 +172,12 @@ async function sendEmails(payload) {
 
     if (outcome.kind === 'ok') {
       successCount += 1;
+      await recordResult(recipient, recipientEmail, RESULT_STATUS.SENT, '');
       broadcastProgress(index + 1, recipients.length, `Enviado a ${recipientEmail} (${successCount} OK, ${errorCount} errores)`, index, true);
     } else {
       errorCount += 1;
       currentProgress.failedEmails.push({ email: recipientEmail, error: outcome.message });
+      await recordResult(recipient, recipientEmail, RESULT_STATUS.ERROR, outcome.message);
       broadcastProgress(index + 1, recipients.length, `Error en ${recipientEmail}: ${outcome.message}`, index, false);
     }
 
@@ -156,12 +195,50 @@ async function sendEmails(payload) {
   }
 
   let finalStatus = `Envío completado: ${successCount} OK, ${errorCount} errores.`;
+  let campaignStatus = CAMPAIGN_STATUS.COMPLETED;
+  let pendingReason = '';
   if (isCancelled) {
     finalStatus = `Envío cancelado. ${successCount} OK, ${errorCount} errores.`;
+    campaignStatus = CAMPAIGN_STATUS.CANCELLED;
+    pendingReason = 'Campaña cancelada antes de llegar a este destinatario';
   }
 
+  // Lo que quedó sin intentar entra al reporte como pendiente. `index` apunta
+  // al primer destinatario no procesado, tanto si se canceló como si se salió
+  // del bucle por cualquier otra vía.
+  const remaining = recipients.slice(index).map((item) => ({
+    email: resolveEmail(item),
+    contactData: item
+  }));
+
+  currentCampaign = finalizeCampaign(currentCampaign, {
+    status: campaignStatus,
+    finishedAt: Date.now(),
+    remaining,
+    reason: pendingReason
+  });
+  await archive(currentCampaign);
+
   broadcastCompletion(currentProgress.current, recipients.length, finalStatus);
-  return { successCount, errorCount, failedEmails: currentProgress.failedEmails };
+  const archived = currentCampaign;
+  currentCampaign = null;
+  return { successCount, errorCount, failedEmails: currentProgress.failedEmails, campaign: archived };
+}
+
+/**
+ * Agrega el resultado al registro y lo persiste. Una escritura cada 10
+ * segundos —el retardo por defecto entre correos— no es un costo relevante, y
+ * a cambio ninguna campaña se pierde si el worker se recicla.
+ */
+async function recordResult(recipient, email, status, reason) {
+  currentCampaign = appendResult(currentCampaign, {
+    email,
+    status,
+    reason,
+    contactData: recipient,
+    timestamp: Date.now()
+  });
+  await saveCurrent(currentCampaign);
 }
 
 /**
@@ -289,6 +366,8 @@ function broadcastProgress(current, total, status, rowIndex, rowSuccess) {
   chrome.action.setBadgeText({ text: `${percent}%` }).catch(() => { });
   chrome.action.setBadgeBackgroundColor({ color: '#2ebd59' }).catch(() => { });
 
+  const results = currentCampaign?.results || [];
+
   chrome.runtime.sendMessage({
     action: 'sendProgress',
     current,
@@ -297,7 +376,10 @@ function broadcastProgress(current, total, status, rowIndex, rowSuccess) {
     rowIndex,
     rowSuccess,
     failedEmails: currentProgress.failedEmails,
-    isPaused
+    isPaused,
+    // El panel lateral agrega esta entrada a su log en vivo; el dashboard la ignora.
+    lastResult: results[results.length - 1] || null,
+    summary: currentCampaign ? summarize(currentCampaign) : null
   }).catch(() => { });
 }
 
@@ -318,7 +400,9 @@ function broadcastCompletion(current, total, status) {
     total,
     status,
     failedEmails: currentProgress.failedEmails,
-    isCancelled
+    isCancelled,
+    summary: currentCampaign ? summarize(currentCampaign) : null,
+    campaign: currentCampaign
   }).catch(() => { });
 }
 
@@ -367,7 +451,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       isCancelled,
       quotaExhausted,
       pausedAccount,
-      ...currentProgress
+      ...currentProgress,
+      // Con esto el panel lateral se pone al día si se abre a mitad de campaña.
+      log: currentCampaign ? tailLog(currentCampaign, LIVE_LOG_LIMIT) : [],
+      summary: currentCampaign ? summarize(currentCampaign) : null,
+      account: currentCampaign?.account || null
     });
     return true;
   }
@@ -401,6 +489,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       await disconnect();
       sendResponse({ connected: false });
+    })();
+    return true;
+  }
+
+  if (message?.action === 'HISTORY_LIST') {
+    (async () => {
+      sendResponse({ history: await listHistory() });
+    })();
+    return true;
+  }
+
+  if (message?.action === 'HISTORY_CLEAR') {
+    (async () => {
+      await clearHistory();
+      sendResponse({ ok: true });
     })();
     return true;
   }
