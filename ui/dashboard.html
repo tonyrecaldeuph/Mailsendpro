@@ -145,6 +145,11 @@
           </div>
         </div>
 
+        <div id="quota-banner" style="display: none; margin: 12px 0; padding: 12px; background: rgba(245, 158, 11, 0.12); border: 1px solid #f59e0b; border-radius: var(--radius-sm);">
+          <p id="quota-banner-text" style="font-size: 0.85rem; color: var(--text-main); line-height: 1.5; margin: 0 0 10px 0;"></p>
+          <button class="btn btn-accent btn-full" id="btn-relevo-cuenta">Conectar otra cuenta y continuar</button>
+        </div>
+
         <div id="errorsContainer" style="display: none; margin-top: var(--spacing-md);">
           <button id="toggleErrorsBtn" class="btn btn-muted" style="width: 100%; background: #2a1414; color: #f87171; border-color: #7f1d1d;">Ver Errores (0)</button>
           <div id="errorsList" class="errors-list" style="display: none; margin-top: var(--spacing-sm);"></div>
@@ -182,24 +187,22 @@
   <div id="modal-configuracion" class="modal-overlay" style="display: none;">
     <div class="modal-content">
       <div class="modal-header">
-        <h2>Configuración — Enlace Mágico</h2>
+        <h2>Configuración</h2>
         <button class="btn-close">×</button>
       </div>
       <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
-        <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">URL de tu Aplicación Web (Google Script)</label>
-        <div style="position: relative;">
-          <input id="apiKey" type="password" placeholder="https://script.google.com/macros/..." style="width: 100%; padding: 10px; padding-right: 40px; background: var(--bg-tertiary); color: white; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
-          <button id="togglePass" type="button" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: transparent; border: none; font-size: 1.1rem; cursor: pointer;">👁️</button>
-        </div>
-
-        <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Token de Seguridad (opcional — solo si tu Code.gs exige un SHARED_TOKEN propio)</label>
-        <div style="position: relative;">
-          <input id="apiToken" type="password" placeholder="Token configurado en el script" style="width: 100%; padding: 10px; padding-right: 40px; background: var(--bg-tertiary); color: white; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
-          <button id="toggleToken" type="button" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: transparent; border: none; font-size: 1.1rem; cursor: pointer;">👁️</button>
+        <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Cuenta de envío</label>
+        <div style="padding: 12px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: 10px;">
+          <div id="gmail-status" style="font-size: 0.9rem; color: var(--text-main);">🔴 Ninguna cuenta conectada</div>
+          <button class="btn btn-accent btn-full" id="btn-conectar-gmail">Conectar cuenta de Gmail</button>
+          <button class="btn btn-muted btn-full" id="btn-desconectar-gmail" style="display: none;">Desconectar</button>
         </div>
 
         <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Nombre visible del Remitente</label>
         <input id="smtpFrom" type="text" placeholder="Mi Empresa S.A." maxlength="100" style="padding: 10px; background: var(--bg-tertiary); color: white; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+        <p style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.5; margin: 0;">
+          Es solo el nombre que ve el destinatario. La dirección de correo siempre es la de la cuenta conectada — Gmail no permite enviar desde otra. Para enviar desde otra casilla, conectá esa casilla.
+        </p>
 
         <button class="btn btn-accent btn-full" id="btn-cerrar-configuracion">Listo</button>
       </div>
