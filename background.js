@@ -1,5 +1,5 @@
 import { computeGateDecision } from './ui/licenseGate.js';
-import { activateLicense, validateLicense, getCachedLicenseState, getOrCreateDeviceId, LICENSE_KEY_STORAGE } from './ui/licenseClient.js';
+import { activateLicense, validateLicense, getCachedLicenseState } from './ui/licenseClient.js';
 import { buildMimeMessage } from './ui/mimeBuilder.js';
 import { classifyGmailError } from './ui/gmailErrors.js';
 import { getAccessToken, invalidateToken, connect, disconnect, detectActiveAccount, getConnectedAccount, AuthRequiredError } from './ui/gmailAuth.js';
