@@ -3,6 +3,7 @@ import { activateLicense, validateLicense, getCachedLicenseState } from './ui/li
 import { buildMimeMessage } from './ui/mimeBuilder.js';
 import { classifyGmailError } from './ui/gmailErrors.js';
 import { getAccessToken, invalidateToken, connect, disconnect, detectActiveAccount, getConnectedAccount, AuthRequiredError } from './ui/gmailAuth.js';
+import { resolveEmail } from './ui/recipientFields.js';
 
 const LICENSE_VALIDATION_ALARM = 'licenseValidationAlarm';
 const LICENSE_VALIDATION_PERIOD_MIN = 360; // 6h
@@ -34,28 +35,6 @@ function sleep(ms) {
  */
 function keepAlive() {
   return chrome.runtime.getPlatformInfo().catch(() => { });
-}
-
-// Mismos alias que ui/dataProcessor.js: el contacto conserva el nombre de
-// columna original del Excel (ej. "CORREO CLIENTE"), así que el envío debe
-// resolver dinámicamente cuál campo es el email en vez de asumir `.email`.
-const EMAIL_COLUMN_ALIASES = ['correo cliente', 'email', 'correo', 'correo electronico', 'e-mail'];
-
-function normalizeHeader(header) {
-  return String(header)
-    .trim()
-    .toLowerCase()
-    .replace(/[áàäâ]/g, 'a')
-    .replace(/[éèëê]/g, 'e')
-    .replace(/[íìïî]/g, 'i')
-    .replace(/[óòöô]/g, 'o')
-    .replace(/[úùüû]/g, 'u')
-    .replace(/\s+/g, ' ');
-}
-
-function resolveEmail(recipient) {
-  const key = Object.keys(recipient || {}).find((k) => EMAIL_COLUMN_ALIASES.includes(normalizeHeader(k)));
-  return key ? String(recipient[key] || '').trim() : '';
 }
 
 // ────────────────────────────────────────────────────────────
