@@ -1,3 +1,5 @@
+import { buildReportRows, toCSV, buildFileName } from './reportBuilder.js';
+
 // ─── DOM refs ────────────────────────────────────────────────────────────────
 const fileInput         = document.getElementById('file-import');
 const importBtn         = document.getElementById('btn-import');
@@ -64,6 +66,19 @@ const licenseInfo       = document.getElementById('license-info');
 const inputLicenseKey   = document.getElementById('input-license-key');
 const btnActivarLicencia = document.getElementById('btn-activar-licencia');
 
+// Reporte e historial
+const navHistorial      = document.getElementById('nav-historial');
+const modalHistorial    = document.getElementById('modal-historial');
+const historialLista    = document.getElementById('historial-lista');
+const btnBorrarHistorial = document.getElementById('btn-borrar-historial');
+const modalResumen      = document.getElementById('modal-resumen');
+const resumenEnviados   = document.getElementById('resumen-enviados');
+const resumenErrores    = document.getElementById('resumen-errores');
+const resumenPendientes = document.getElementById('resumen-pendientes');
+const btnResumenCSV     = document.getElementById('btn-resumen-csv');
+const btnResumenXLSX    = document.getElementById('btn-resumen-xlsx');
+const btnCerrarResumen  = document.getElementById('btn-cerrar-resumen');
+
 // ─── State ───────────────────────────────────────────────────────────────────
 let recipients  = [];
 let availableVariables = [];
@@ -76,6 +91,13 @@ let isLicenseAllowed = false;
 let hasPromptedForLicense = false;
 let gmailAccount = null;
 let hasPromptedForGmail = false;
+
+let lastCampaign = null;
+// Se resuelve al cargar porque chrome.sidePanel.open() exige un gesto del
+// usuario: si se pidiera la ventana dentro del click, el await perdería el
+// gesto y Chrome rechazaría la apertura.
+let currentWindowId = null;
+chrome.windows.getCurrent().then((win) => { currentWindowId = win.id; }).catch(() => { });
 
 // ─── Persistence ─────────────────────────────────────────────────────────────
 function saveState() {
@@ -561,6 +583,21 @@ function estimateAttachmentBytes(list) {
   }, 0);
 }
 
+/**
+ * Abre el panel lateral de monitoreo. Se llama dentro del click de "Iniciar
+ * Campaña" porque Chrome solo permite abrirlo en respuesta a un gesto del
+ * usuario. Si el navegador es anterior a Chrome 114 no existe la API: la
+ * campaña sale igual, solo que sin panel.
+ */
+function openMonitorPanel() {
+  if (!chrome.sidePanel?.open || currentWindowId === null) {
+    console.info('[monitor] este Chrome no soporta el panel lateral; la campaña sigue normalmente.');
+    return;
+  }
+  chrome.sidePanel.open({ windowId: currentWindowId })
+    .catch((err) => console.warn('[monitor] no se pudo abrir el panel:', err?.message || err));
+}
+
 function startSend() {
   if (recipients.length === 0) {
     alert('Importa al menos un destinatario desde Excel.');
@@ -602,6 +639,8 @@ function startSend() {
     firstStatus.value = 'Enviando... ⏳';
     firstStatus.style.color = '#eab308';
   }
+
+  openMonitorPanel();
 
   setProgress(0, recipients.length, '🚀 Iniciando campaña...', []);
   setUIState('running');
@@ -900,6 +939,137 @@ syncInputs.forEach(el => {
   if (el.type !== 'checkbox') el.addEventListener('keyup', saveState);
 });
 
+// ─── Reporte e historial ─────────────────────────────────────────────────────
+
+/**
+ * Descarga un Blob. En una página de extensión alcanza con un <a download>
+ * sintético; el object URL se revoca enseguida para no retener memoria.
+ */
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function downloadCSV(campaign) {
+  const report = buildReportRows(campaign);
+  if (report.headers.length === 0) {
+    alert('Esa campaña no tiene resultados para exportar.');
+    return;
+  }
+  const blob = new Blob([toCSV(report)], { type: 'text/csv;charset=utf-8;' });
+  triggerDownload(blob, buildFileName(campaign, 'csv'));
+}
+
+/**
+ * .xlsx nativo con el SheetJS que ya viene incluido para importar. El
+ * aplicativo hermano de SMS genera una tabla HTML con extensión .xls y por eso
+ * Excel avisa que el formato no coincide con la extensión cada vez que se
+ * abre; acá el archivo es legítimo.
+ */
+function downloadXLSX(campaign) {
+  const report = buildReportRows(campaign);
+  if (report.headers.length === 0) {
+    alert('Esa campaña no tiene resultados para exportar.');
+    return;
+  }
+  const worksheet = XLSX.utils.aoa_to_sheet([report.headers, ...report.rows]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Reporte');
+  const output = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([output], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  triggerDownload(blob, buildFileName(campaign, 'xlsx'));
+}
+
+function showSummary(summary) {
+  resumenEnviados.textContent   = summary?.enviados ?? 0;
+  resumenErrores.textContent    = summary?.errores ?? 0;
+  resumenPendientes.textContent = summary?.pendientes ?? 0;
+  openModal(modalResumen);
+}
+
+function renderHistory(history) {
+  historialLista.innerHTML = '';
+
+  if (!history || history.length === 0) {
+    const empty = document.createElement('p');
+    empty.style.cssText = 'text-align: center; color: var(--text-muted); padding: 20px 0;';
+    empty.textContent = 'Todavía no hay campañas guardadas.';
+    historialLista.appendChild(empty);
+    btnBorrarHistorial.style.display = 'none';
+    return;
+  }
+
+  btnBorrarHistorial.style.display = '';
+
+  history.forEach((campaign) => {
+    const enviados = (campaign.results || []).filter((r) => r.status === 'enviado').length;
+    const errores  = (campaign.results || []).filter((r) => r.status === 'error').length;
+
+    const item = document.createElement('div');
+    item.style.cssText = 'padding: 12px; margin-bottom: 10px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: var(--radius-md);';
+
+    const header = document.createElement('div');
+    header.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 10px;';
+
+    const info = document.createElement('div');
+    const date = document.createElement('div');
+    date.style.cssText = 'font-weight: 600; color: var(--text-main);';
+    date.textContent = new Date(campaign.date).toLocaleString('es-EC');
+    const detail = document.createElement('div');
+    detail.style.cssText = 'font-size: 0.8rem; color: var(--text-muted); margin-top: 3px;';
+    detail.textContent = `${campaign.total} destinatarios · ✅ ${enviados} · ❌ ${errores} · ${campaign.status}`;
+    info.append(date, detail);
+
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display: flex; gap: 6px;';
+
+    const btnCsv = document.createElement('button');
+    btnCsv.className = 'btn btn-muted';
+    btnCsv.style.cssText = 'padding: 5px 10px; font-size: 0.75rem;';
+    btnCsv.textContent = '📄 CSV';
+    btnCsv.addEventListener('click', () => downloadCSV(campaign));
+
+    const btnXlsx = document.createElement('button');
+    btnXlsx.className = 'btn btn-muted';
+    btnXlsx.style.cssText = 'padding: 5px 10px; font-size: 0.75rem;';
+    btnXlsx.textContent = '📊 Excel';
+    btnXlsx.addEventListener('click', () => downloadXLSX(campaign));
+
+    actions.append(btnCsv, btnXlsx);
+    header.append(info, actions);
+    item.appendChild(header);
+    historialLista.appendChild(item);
+  });
+}
+
+function openHistory() {
+  chrome.runtime.sendMessage({ action: 'HISTORY_LIST' }, (response) => {
+    if (chrome.runtime.lastError) return;
+    renderHistory(response?.history || []);
+    openModal(modalHistorial);
+  });
+}
+
+navHistorial.addEventListener('click', (e) => { e.preventDefault(); openHistory(); });
+
+btnBorrarHistorial.addEventListener('click', () => {
+  if (!confirm('¿Borrar todo el historial de campañas? No se puede deshacer.')) return;
+  chrome.runtime.sendMessage({ action: 'HISTORY_CLEAR' }, () => {
+    if (chrome.runtime.lastError) return;
+    renderHistory([]);
+  });
+});
+
+btnCerrarResumen.addEventListener('click', () => closeModal(modalResumen));
+btnResumenCSV.addEventListener('click', () => { if (lastCampaign) downloadCSV(lastCampaign); });
+btnResumenXLSX.addEventListener('click', () => { if (lastCampaign) downloadXLSX(lastCampaign); });
+
 // ─── Background message listener ──────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.action === 'sendProgress') {
@@ -912,6 +1082,11 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message?.action === 'sendComplete') {
     setProgress(message.current, message.total, message.status, message.failedEmails || []);
     setUIState('finished');
+
+    if (message.campaign) {
+      lastCampaign = message.campaign;
+      showSummary(message.summary);
+    }
 
     const success = !message.isCancelled && (!message.failedEmails || message.failedEmails.length === 0);
     if (success && message.total > 0) {
