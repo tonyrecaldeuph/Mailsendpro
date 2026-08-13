@@ -1,12 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Mailer Pro — Envío Masivo de Correos",
-  "description": "Enviar emails masivos con imágenes y listas de Excel desde cualquier navegador.",
-  "version": "1.1.0",
-  "permissions": ["storage", "unlimitedStorage", "alarms"],
+  "description": "Enviar emails masivos con imágenes y listas de Excel desde tu propia cuenta de Gmail.",
+  "version": "1.2.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoWBIcGqXJnwOY5OtgsV/Salld6b+2TV4E1c0prwXurR3KRsw8wm0PYEr26K2Yeta+9vweb8yZzTqie6ER9/TvgYulGg8i+q9iqXf+O+x3oN+trw9MAvjVAHmkY4FiG9N2vrS9wKpp6qDMWLfU9fnyL7DpIJUt3RxU/IMupyftqEAj4gnwf3yw0qU2dgdZLWMlqaCKbjaRrfI7LGGACgRh5jArenm7ozw1oELDHF5BaBOOBvAtWdVKDWpMVKpSXuYp25kbPv9bPrpJXgTdUEfMNDxKEuWWcsioMQDgpvA3zTERHd2kG8xEB68cxCCNs8n7fSWPHqvcEUYMXT66gMHGQIDAQAB",
+  "permissions": ["storage", "unlimitedStorage", "alarms", "identity"],
   "host_permissions": [
-    "https://script.google.com/*",
-    "https://script.googleusercontent.com/*",
+    "https://gmail.googleapis.com/*",
+    "https://oauth2.googleapis.com/*",
+    "https://www.googleapis.com/*",
     "https://licencias.anomalydevs.qzz.io/*"
   ],
   "background": {
@@ -25,11 +27,5 @@
     "16": "assets/icon16.png",
     "48": "assets/icon48.png",
     "128": "assets/icon128.png"
-  },
-  "browser_specific_settings": {
-    "gecko": {
-      "id": "mailer-pro@extension",
-      "strict_min_version": "121.0"
-    }
   }
 }

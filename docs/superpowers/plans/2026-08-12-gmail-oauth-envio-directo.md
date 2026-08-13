@@ -70,7 +70,7 @@ Chrome ignora este archivo; existe solo para que `node --test` pueda importar lo
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/"
+    "test": "node --test"
   }
 }
 ```
@@ -1779,8 +1779,10 @@ Expected: sin salida
 
 - [ ] **Step 2: Toda la batería de tests**
 
-Run: `node --test tests/`
+Run: `node --test`
 Expected: PASS — 21 tests, 0 fallos
+
+(Sin argumento: en Node 22 sobre Windows, pasarle el directorio — `node --test tests/` — intenta cargarlo como módulo y falla con `MODULE_NOT_FOUND`. La autodetección sí encuentra `tests/*.test.js`.)
 
 - [ ] **Step 3: Rutas del manifest existentes**
 
