@@ -29,7 +29,7 @@
         </a>
       </nav>
       <div class="header-actions">
-        <span style="font-size: 0.7rem; font-weight: 700; color: var(--color-accent); letter-spacing: 0.5px; padding: 2px 7px; border: 1px solid var(--color-accent); border-radius: 999px; line-height: 1;">v1.1</span>
+        <span style="font-size: 0.7rem; font-weight: 700; color: var(--color-accent); letter-spacing: 0.5px; padding: 2px 7px; border: 1px solid var(--color-accent); border-radius: 999px; line-height: 1;">v3.2</span>
       </div>
     </header>
 
@@ -77,7 +77,21 @@
         <div class="message-editor">
           <input id="subject" type="text" placeholder="Asunto del correo — admite variables, ej: {NOMBRE CLIENTE}, ¡tenemos algo para ti!">
 
-          <textarea id="message" placeholder="Hola {NOMBRE CLIENTE},&#10;Tu monto por cobrar es {MONTO POR COBRAR}..." style="min-height: 100px;"></textarea>
+          <div id="message" contenteditable="true" data-placeholder="Hola {NOMBRE CLIENTE},
+Tu monto por cobrar es {MONTO POR COBRAR}..."></div>
+
+          <div class="msg-toolbar" id="msg-toolbar">
+            <button type="button" class="fmt-btn" data-cmd="bold" title="Negrita"><b>B</b></button>
+            <button type="button" class="fmt-btn" data-cmd="italic" title="Cursiva"><i>I</i></button>
+            <button type="button" class="fmt-btn" data-cmd="underline" title="Subrayado"><u>U</u></button>
+            <button type="button" class="fmt-btn" data-cmd="strikeThrough" title="Tachado"><s>S</s></button>
+            <span class="fmt-sep"></span>
+            <button type="button" class="fmt-btn" data-cmd="insertUnorderedList" title="Lista con viñetas">• Lista</button>
+            <button type="button" class="fmt-btn" data-cmd="insertOrderedList" title="Lista numerada">1. Lista</button>
+            <span class="fmt-sep"></span>
+            <button type="button" class="fmt-btn" data-cmd="formatBlock" data-value="h2" title="Título">Título</button>
+            <button type="button" class="fmt-btn" data-cmd="removeFormat" title="Quitar formato">Quitar formato</button>
+          </div>
 
           <div id="variables-container" class="variables-hint" style="display: none;">
             <span class="hint-label">Variables detectadas (clic para insertar):</span>
@@ -228,6 +242,9 @@
           <p style="font-weight: 600; font-size: 1.1rem; color: var(--text-main); margin-bottom: 5px;">Alexis Pillajo</p>
           <p style="color: var(--color-accent); font-size: 1rem; font-weight: 500;">📱 0980964513</p>
         </div>
+        <a href="https://anomalydevs.qzz.io/" id="link-web-soporte" target="_blank" rel="noopener" style="display: inline-block; margin-top: 20px; padding: 12px 24px; background: var(--color-accent); color: #0d1117; border-radius: var(--radius-sm); font-weight: 700; text-decoration: none; font-size: 0.95rem;">
+          🌐 Visitar nuestra página web
+        </a>
       </div>
     </div>
   </div>

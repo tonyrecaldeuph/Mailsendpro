@@ -141,6 +141,74 @@ textarea:focus {
   box-shadow: var(--glow);
 }
 
+/* Rich message editor */
+.msg-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-top: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  /* Cancela el gap del contenedor para que quede pegado al editor. */
+  margin-top: calc(-1 * var(--spacing-sm));
+}
+
+.fmt-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-family: var(--font-main);
+  font-size: 0.8rem;
+  padding: 5px 9px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.fmt-btn:hover {
+  border-color: var(--border-active);
+  color: var(--text-main);
+  background: var(--bg-tertiary);
+}
+
+.fmt-sep {
+  width: 1px;
+  background: var(--border-color);
+  margin: 0 4px;
+}
+
+#message[contenteditable] {
+  width: 100%;
+  min-height: 120px;
+  max-height: 300px;
+  overflow-y: auto;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-bottom: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  padding: var(--spacing-md);
+  color: var(--text-main);
+  font-family: var(--font-main);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  outline: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+#message[contenteditable]:focus {
+  border-color: var(--color-accent);
+  box-shadow: var(--glow);
+}
+
+#message[contenteditable]:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
 /* Send options */
 .option-card {
   background-color: var(--bg-secondary);

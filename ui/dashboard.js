@@ -1,4 +1,5 @@
 import { buildReportRows, toCSV, buildFileName } from './reportBuilder.js';
+import { summarize } from './campaignLog.js';
 
 // ─── DOM refs ────────────────────────────────────────────────────────────────
 const fileInput         = document.getElementById('file-import');
@@ -57,6 +58,7 @@ const btnRelevoCuenta   = document.getElementById('btn-relevo-cuenta');
 // Soporte
 const navSoporte        = document.getElementById('nav-soporte');
 const modalSoporte       = document.getElementById('modal-soporte');
+const linkWebSoporte     = document.getElementById('link-web-soporte');
 
 // Licencia
 const navLicencia       = document.getElementById('nav-licencia');
@@ -99,11 +101,55 @@ let lastCampaign = null;
 let currentWindowId = null;
 chrome.windows.getCurrent().then((win) => { currentWindowId = win.id; }).catch(() => { });
 
+// Última posición del caret dentro del editor. El navegador descarta la
+// selección cuando el foco se va a otro elemento, así que se guarda acá para
+// poder insertar una variable exactamente donde el usuario estaba escribiendo.
+let lastEditorRange = null;
+
+document.addEventListener('selectionchange', () => {
+  const selection = window.getSelection();
+  if (selection.rangeCount > 0 && messageInput.contains(selection.anchorNode)) {
+    lastEditorRange = selection.getRangeAt(0).cloneRange();
+  }
+});
+
 // ─── Persistence ─────────────────────────────────────────────────────────────
+/**
+ * El editor enriquecido guarda HTML; los mensajes guardados por versiones
+ * anteriores son texto plano. Cuál es cuál se decide por la marca que graba
+ * `saveState`, no adivinando por el contenido: el editor está estilado con
+ * `white-space: pre-wrap` y bajo ese estilo el navegador sí puede dejar saltos
+ * de línea crudos en el innerHTML, así que olfatear `\n` daba por texto plano
+ * a mensajes con formato y los mostraba con las etiquetas a la vista.
+ */
+function restoreMessage(stored, format) {
+  if (format === 'html') return stored;
+
+  // Texto plano: se escapa siempre, no solo cuando hay saltos de línea. Un
+  // mensaje de una sola línea con "<" o "&" también se rompería al asignarlo
+  // como HTML, y el usuario perdería ese texto sin enterarse.
+  return String(stored)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\r?\n/g, '<br>');
+}
+
+/**
+ * El cuerpo que se manda a Gmail. Los saltos de línea crudos que `pre-wrap`
+ * permite dentro del editor no se ven en un correo `text/html`: sin esta
+ * conversión el destinatario recibe todo el mensaje en un solo párrafo
+ * corrido, aunque en el editor se viera separado en líneas.
+ */
+function messageToHtml() {
+  return messageInput.innerHTML.replace(/\r?\n/g, '<br>');
+}
+
 function saveState() {
   chrome.storage.local.set({
     subject:    subjectInput.value,
-    message:    messageInput.value,
+    message:    messageInput.innerHTML,
+    messageFormat: 'html',
     delaySeconds: delaySeconds.value,
     smtpFrom:   smtpFrom.value,
     recipients
@@ -117,7 +163,7 @@ function restoreState() {
 
   chrome.storage.local.get(null, (state) => {
     if (state.subject       !== undefined) subjectInput.value   = state.subject;
-    if (state.message       !== undefined) messageInput.value   = state.message;
+    if (state.message       !== undefined) messageInput.innerHTML = restoreMessage(state.message, state.messageFormat);
     if (state.delaySeconds  !== undefined) delaySeconds.value   = state.delaySeconds;
     if (state.smtpFrom      !== undefined) smtpFrom.value       = state.smtpFrom;
 
@@ -125,6 +171,19 @@ function restoreState() {
       recipients = state.recipients;
       availableVariables = DataProcessor.getAvailableVariables(recipients);
       updateUIWithContacts();
+    }
+
+    // El resumen no puede depender del mensaje `sendComplete`: abrir el panel
+    // lateral le saca el foco a este popup y Chrome lo cierra, así que cuando
+    // la campaña termina no queda nadie escuchando. Se recupera de la campaña
+    // archivada, que es la que además alimenta los botones de descarga.
+    const history = state.campaignHistory || [];
+    if (history.length > 0) {
+      lastCampaign = history[0];
+      if (state.campaignFinished) {
+        showSummary(summarize(lastCampaign));
+        chrome.storage.local.remove('campaignFinished');
+      }
     }
   });
 
@@ -319,21 +378,40 @@ function renderVariableTags() {
     const tag = document.createElement('span');
     tag.className = 'variable-tag';
     tag.textContent = variable;
+    // Sin esto, el mousedown sobre el tag le saca el foco al editor y el
+    // navegador descarta el caret: la variable terminaba insertándose al final
+    // del mensaje en vez de donde el usuario había hecho clic.
+    tag.addEventListener('mousedown', (e) => e.preventDefault());
     tag.addEventListener('click', () => insertVariable(variable));
     variableTags.appendChild(tag);
   });
 }
 
+/**
+ * La variable se inserta donde el usuario dejó el cursor. El `preventDefault`
+ * del mousedown de cada tag ya evita que el editor pierda el foco, así que en
+ * el caso normal la selección sigue viva; `lastEditorRange` es el respaldo
+ * para cuando el foco se fue por otro camino (abrir un modal, cambiar de
+ * pestaña), y solo si tampoco hay respaldo se cae al final del mensaje.
+ */
 function insertVariable(variable) {
-  const start = messageInput.selectionStart;
-  const end = messageInput.selectionEnd;
-  const text = messageInput.value;
-  const before = text.substring(0, start);
-  const after = text.substring(end);
-
-  messageInput.value = `${before}{${variable}}${after}`;
   messageInput.focus();
-  messageInput.selectionStart = messageInput.selectionEnd = start + variable.length + 2;
+
+  const selection = window.getSelection();
+  const caretIsInEditor = selection.rangeCount > 0 && messageInput.contains(selection.anchorNode);
+
+  if (!caretIsInEditor) {
+    const range = lastEditorRange ? lastEditorRange.cloneRange() : document.createRange();
+    if (!lastEditorRange) {
+      range.selectNodeContents(messageInput);
+      range.collapse(false);
+    }
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  // insertText conserva el formato del texto en el punto de inserción.
+  document.execCommand('insertText', false, `{${variable}}`);
   saveState();
 }
 
@@ -651,7 +729,7 @@ function startSend() {
     fromEmail:    smtpFrom.value.replace(/[\r\n]/g, '').slice(0, 100),
     recipients,
     subject:      subjectInput.value,
-    message:      messageInput.value,
+    message:      messageToHtml(),
     attachments:  [...attachments, ...pdfAttachments],
     delaySeconds: parseInt(delaySeconds.value) || 10
   };
@@ -720,6 +798,13 @@ navConfiguracion.addEventListener('click', (e) => { e.preventDefault(); openModa
 btnCerrarConfiguracion.addEventListener('click', () => closeModal(modalConfiguracion));
 
 navSoporte.addEventListener('click', (e) => { e.preventDefault(); openModal(modalSoporte); });
+
+// chrome.tabs.create en vez de dejar que el popup navegue: al cerrarse el
+// popup, la pestaña nueva igual se abre en la ventana del navegador.
+linkWebSoporte.addEventListener('click', (e) => {
+  e.preventDefault();
+  chrome.tabs.create({ url: 'https://anomalydevs.qzz.io/' });
+});
 
 navLicencia.addEventListener('click', (e) => { e.preventDefault(); openModal(modalLicencia); });
 licenseBadge.addEventListener('click', () => openModal(modalLicencia));
@@ -933,10 +1018,28 @@ resumeBtn.addEventListener('click', resumeCampaign);
 cancelBtn.addEventListener('click', cancelCampaign);
 resetBtn.addEventListener('click', resetCampaign);
 
-const syncInputs = [subjectInput, messageInput, delaySeconds, smtpFrom];
+// messageInput queda fuera a propósito: es un contenteditable, no dispara
+// 'change', y con 'keyup' además se guardaba dos veces por tecla —y cada
+// guardado reserializa la lista entera de destinatarios.
+const syncInputs = [subjectInput, delaySeconds, smtpFrom];
 syncInputs.forEach(el => {
   el.addEventListener('change', saveState);
   if (el.type !== 'checkbox') el.addEventListener('keyup', saveState);
+});
+
+// 'input' es el único evento que cubre todo lo que puede cambiar el editor:
+// tipeo, pegado, arrastre de texto y los botones de formato.
+messageInput.addEventListener('input', saveState);
+
+// Toolbar de formato. mousedown con preventDefault evita que el clic robe la
+// selección al editor, y execCommand aplica el formato al texto seleccionado.
+document.querySelectorAll('.fmt-btn').forEach((btn) => {
+  btn.addEventListener('mousedown', (e) => e.preventDefault());
+  btn.addEventListener('click', () => {
+    messageInput.focus();
+    document.execCommand(btn.dataset.cmd, false, btn.dataset.value || null);
+    saveState();
+  });
 });
 
 // ─── Reporte e historial ─────────────────────────────────────────────────────
@@ -1083,9 +1186,13 @@ chrome.runtime.onMessage.addListener((message) => {
     setProgress(message.current, message.total, message.status, message.failedEmails || []);
     setUIState('finished');
 
+    // Este popup solo sigue vivo si el panel lateral no llegó a abrirse (p. ej.
+    // en un Chrome anterior al 114). Cuando pasa, se muestra el resumen acá
+    // mismo y se baja la marca para que no vuelva a aparecer al reabrirlo.
     if (message.campaign) {
       lastCampaign = message.campaign;
       showSummary(message.summary);
+      chrome.storage.local.remove('campaignFinished');
     }
 
     const success = !message.isCancelled && (!message.failedEmails || message.failedEmails.length === 0);

@@ -10,6 +10,16 @@
 const CURRENT_KEY = 'campaignInProgress';
 const HISTORY_KEY = 'campaignHistory';
 
+// La lista de destinatarios va en su propia clave y se escribe una sola vez
+// por campaña. Si viviera dentro del objeto de la campaña, cada correo la
+// reserializaría entera junto con los resultados.
+const RECIPIENTS_KEY = 'campaignRecipients';
+
+// Lo lee el dashboard al abrirse para saber que hay un resumen sin ver. Hace
+// falta porque al abrir el panel lateral Chrome cierra el popup, y entonces no
+// queda nadie escuchando el mensaje de campaña terminada.
+const FINISHED_FLAG_KEY = 'campaignFinished';
+
 /** Tope por higiene de la UI, no por espacio: la extensión declara unlimitedStorage. */
 export const HISTORY_LIMIT = 20;
 
@@ -26,12 +36,26 @@ export async function clearCurrent() {
   await chrome.storage.local.remove([CURRENT_KEY]);
 }
 
-/** Archiva una campaña cerrada y limpia la que estaba en curso. */
+/** Destinatarios de la campaña en curso, para saber quiénes quedaron sin intentar. */
+export async function saveRecipients(recipients) {
+  await chrome.storage.local.set({ [RECIPIENTS_KEY]: recipients });
+}
+
+export async function loadRecipients() {
+  const stored = await chrome.storage.local.get([RECIPIENTS_KEY]);
+  return stored[RECIPIENTS_KEY] || [];
+}
+
+/** Archiva una campaña cerrada y limpia todo el estado de la que estaba en curso. */
 export async function archive(campaign) {
   const history = await listHistory();
   history.unshift(campaign);
-  await chrome.storage.local.set({ [HISTORY_KEY]: history.slice(0, HISTORY_LIMIT) });
+  await chrome.storage.local.set({
+    [HISTORY_KEY]: history.slice(0, HISTORY_LIMIT),
+    [FINISHED_FLAG_KEY]: true
+  });
   await clearCurrent();
+  await chrome.storage.local.remove([RECIPIENTS_KEY]);
 }
 
 /** @returns {Promise<Array>} Campañas cerradas, la más reciente primero. */

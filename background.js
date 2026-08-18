@@ -5,7 +5,7 @@ import { classifyGmailError } from './ui/gmailErrors.js';
 import { getAccessToken, invalidateToken, connect, disconnect, detectActiveAccount, getConnectedAccount, AuthRequiredError } from './ui/gmailAuth.js';
 import { resolveEmail } from './ui/recipientFields.js';
 import { createCampaign, appendResult, summarize, tailLog, finalizeCampaign, RESULT_STATUS, CAMPAIGN_STATUS } from './ui/campaignLog.js';
-import { saveCurrent, loadCurrent, archive, listHistory, clearHistory } from './ui/historyStore.js';
+import { saveCurrent, loadCurrent, archive, listHistory, clearHistory, saveRecipients, loadRecipients } from './ui/historyStore.js';
 
 const LICENSE_VALIDATION_ALARM = 'licenseValidationAlarm';
 const LICENSE_VALIDATION_PERIOD_MIN = 360; // 6h
@@ -74,19 +74,38 @@ chrome.alarms.onAlarm.addListener((alarm) => {
  * reporte de lo que sí se envió.
  */
 async function recoverInterruptedCampaign() {
+  // Si este worker ya está enviando, la campaña de storage es la suya y no hay
+  // nada que recuperar: archivarla acá le borraría el registro en pleno envío.
+  if (sendInProgress) return;
+
   const pending = await loadCurrent();
   if (!pending) return;
+
+  // Los destinatarios se guardaron aparte justo por esto: sin ellos, el
+  // reporte de una campaña interrumpida solo mostraría a los que sí se
+  // intentaron, que es exactamente el caso en que el usuario más necesita
+  // saber quiénes quedaron afuera.
+  const allRecipients = await loadRecipients();
+  const remaining = allRecipients.slice(pending.results.length).map((item) => ({
+    email: resolveEmail(item),
+    contactData: item
+  }));
 
   const closed = finalizeCampaign(pending, {
     status: CAMPAIGN_STATUS.INTERRUPTED,
     finishedAt: Date.now(),
+    remaining,
     reason: 'El envío se interrumpió antes de llegar a este destinatario'
   });
   await archive(closed);
   console.warn('[campaña] se archivó una campaña interrumpida:', closed.results.length, 'resultados');
 }
 
-recoverInterruptedCampaign().catch((err) => console.warn('[campaña] recuperación falló:', err?.message || err));
+// Se guarda la promesa para que el primer `startSend` de este worker espere a
+// que la recuperación termine. Si corrieran en paralelo, el `archive()` de la
+// recuperación podía borrar el registro de la campaña recién iniciada.
+const recoveryReady = recoverInterruptedCampaign()
+  .catch((err) => console.warn('[campaña] recuperación falló:', err?.message || err));
 
 // ────────────────────────────────────────────────────────────
 // Envío de campaña
@@ -111,6 +130,24 @@ async function sendEmails(payload) {
   }
 
   sendInProgress = true;
+  try {
+    return await runCampaign(payload, account);
+  } catch (err) {
+    // Cualquier fallo inesperado —storage lleno, permiso revocado— tiene que
+    // dejar la extensión usable. Sin esto, `sendInProgress` se quedaba en true
+    // y todas las campañas siguientes respondían "Ya hay un envío en progreso"
+    // hasta que Chrome reciclara el service worker.
+    console.error('[campaña] el envío se interrumpió por un error:', err);
+    currentCampaign = null;
+    broadcastCompletion(currentProgress.current, payload.recipients?.length || 0, `Envío interrumpido: ${err.message}`);
+    return { error: `El envío se interrumpió: ${err.message}` };
+  } finally {
+    sendInProgress = false;
+  }
+}
+
+/** Cuerpo de la campaña. Lo envuelve sendEmails, que garantiza la limpieza. */
+async function runCampaign(payload, account) {
   isPaused = false;
   isCancelled = false;
   quotaExhausted = false;
@@ -124,6 +161,7 @@ async function sendEmails(payload) {
     startedAt: Date.now()
   });
   await saveCurrent(currentCampaign);
+  await saveRecipients(payload.recipients);
 
   const { fromEmail, recipients, subject, message, attachments, delaySeconds } = payload;
   let successCount = 0;
@@ -379,6 +417,10 @@ function broadcastProgress(current, total, status, rowIndex, rowSuccess) {
     isPaused,
     // El panel lateral agrega esta entrada a su log en vivo; el dashboard la ignora.
     lastResult: results[results.length - 1] || null,
+    // Pausar y reanudar también emiten progreso, con el mismo `lastResult` que
+    // el panel ya pintó. Con este contador el panel distingue un resultado
+    // nuevo de una repetición y deja de duplicar la última línea del log.
+    resultCount: results.length,
     summary: currentCampaign ? summarize(currentCampaign) : null
   }).catch(() => { });
 }
@@ -408,9 +450,12 @@ function broadcastCompletion(current, total, status) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.action === 'startSend') {
-    sendEmails(message.payload).then((result) => {
-      sendResponse(result);
-    });
+    // Se espera a la recuperación de campañas interrumpidas antes de arrancar:
+    // las dos escriben sobre la misma clave de storage.
+    recoveryReady
+      .then(() => sendEmails(message.payload))
+      .then((result) => sendResponse(result))
+      .catch((err) => sendResponse({ error: err?.message || 'Error inesperado al iniciar el envío.' }));
     return true;
   }
 
@@ -454,6 +499,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       ...currentProgress,
       // Con esto el panel lateral se pone al día si se abre a mitad de campaña.
       log: currentCampaign ? tailLog(currentCampaign, LIVE_LOG_LIMIT) : [],
+      resultCount: currentCampaign ? currentCampaign.results.length : 0,
       summary: currentCampaign ? summarize(currentCampaign) : null,
       account: currentCampaign?.account || null
     });

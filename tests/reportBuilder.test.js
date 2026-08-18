@@ -102,6 +102,20 @@ test('un valor sin caracteres especiales no se entrecomilla', () => {
 });
 
 test('el nombre del archivo lleva la fecha de la campaña', () => {
-  assert.equal(buildFileName(campaign, 'csv'), 'campana_2026-08-13.csv');
-  assert.equal(buildFileName(campaign, 'xlsx'), 'campana_2026-08-13.xlsx');
+  const local = new Date(2026, 7, 13, 14, 30);
+  assert.equal(buildFileName({ date: local.getTime() }, 'csv'), 'campana_2026-08-13.csv');
+  assert.equal(buildFileName({ date: local.getTime() }, 'xlsx'), 'campana_2026-08-13.xlsx');
+});
+
+test('la fecha del archivo es la local, no la UTC', () => {
+  // Una campaña de las 22:00 ya cayó en el día siguiente en UTC. El archivo
+  // tiene que coincidir con la fecha que el historial muestra al lado del
+  // botón de descarga, que se arma con toLocaleString.
+  const lateNight = new Date(2026, 7, 13, 22, 0);
+  assert.equal(buildFileName({ date: lateNight.getTime() }, 'csv'), 'campana_2026-08-13.csv');
+});
+
+test('el mes y el día van con cero a la izquierda', () => {
+  const early = new Date(2026, 0, 5, 9, 0);
+  assert.equal(buildFileName({ date: early.getTime() }, 'csv'), 'campana_2026-01-05.csv');
 });

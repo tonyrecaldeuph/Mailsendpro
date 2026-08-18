@@ -25,6 +25,11 @@ const LIVE_LOG_LIMIT = 50;
 
 const STATUS_ICONS = { enviado: '✅', error: '❌', pendiente: '⏳' };
 
+// Cuántos resultados lleva pintados el log. Background emite progreso también
+// al pausar y al reanudar, con el mismo último resultado: sin este contador,
+// cada pausa volvía a insertar la línea que ya estaba arriba.
+let paintedResults = 0;
+
 function formatTime(timestamp) {
   if (!timestamp) return '';
   return new Date(timestamp).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' });
@@ -87,8 +92,11 @@ function prependLogEntry(result) {
 
   // El detalle completo vive en el reporte: acá solo se muestran las últimas
   // entradas para que el panel no se vuelva pesado en campañas largas.
-  while (logEl.querySelectorAll('.log-entry').length > LIVE_LOG_LIMIT) {
-    logEl.removeChild(logEl.lastElementChild);
+  // Se recorta por `.log-entry` y no por `lastElementChild`: el cartel de
+  // "sin campaña" es el último hijo del contenedor y se lo llevaba puesto.
+  const entries = logEl.querySelectorAll('.log-entry');
+  for (let i = LIVE_LOG_LIMIT; i < entries.length; i += 1) {
+    entries[i].remove();
   }
 }
 
@@ -159,11 +167,21 @@ btnCancelar.addEventListener('click', () => {
 btnRelevo.addEventListener('click', () => {
   chrome.runtime.sendMessage({ action: 'GMAIL_CONNECT', selectAccount: true }, (response) => {
     if (chrome.runtime.lastError) return;
-    if (response?.connected) {
-      chrome.runtime.sendMessage({ action: 'resumeSend' }).catch(() => { });
+    if (!response?.connected) return;
+
+    // Se verifica que la campaña siga viva antes de decir que continúa: si el
+    // worker murió durante la pausa por cuota, no hay bucle que reanudar y
+    // mostrar "enviando" sería una barra de progreso que no avanza nunca.
+    chrome.runtime.sendMessage({ action: 'resumeSend' }, (resumed) => {
+      if (chrome.runtime.lastError) return;
+      if (resumed?.error) {
+        quotaText.textContent = resumed.error;
+        setControls('idle');
+        return;
+      }
       hideQuotaBanner();
       setControls('running');
-    }
+    });
   });
 });
 
@@ -172,8 +190,15 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message?.action === 'sendProgress') {
     setProgress(message.current, message.total);
     setSummary(message.summary);
-    prependLogEntry(message.lastResult);
-    if (message.lastResult) currentEmailEl.textContent = message.lastResult.email;
+
+    // Solo se pinta si de verdad hay un resultado nuevo: una pausa o una
+    // reanudación reenvían el último, que ya está en pantalla.
+    if (message.resultCount > paintedResults) {
+      prependLogEntry(message.lastResult);
+      paintedResults = message.resultCount;
+      if (message.lastResult) currentEmailEl.textContent = message.lastResult.email;
+    }
+
     setControls(message.isPaused ? 'paused' : 'running');
   }
 
@@ -199,6 +224,7 @@ chrome.runtime.sendMessage({ action: 'getState' }, (response) => {
   setProgress(response.current || 0, response.total || 0);
   setSummary(response.summary);
   renderLog(response.log);
+  paintedResults = response.resultCount || 0;
 
   if (response.sendInProgress) {
     setControls(response.isPaused ? 'paused' : 'running');

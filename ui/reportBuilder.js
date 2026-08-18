@@ -81,8 +81,17 @@ export function toCSV({ headers, rows }) {
   return `\uFEFF${lines.join('\r\n')}`;
 }
 
-/** @param {'csv'|'xlsx'} extension */
+/**
+ * La fecha se arma con las partes locales y no con toISOString(): en zonas
+ * detrás de UTC, una campaña de la noche ya cayó en el día siguiente en UTC, y
+ * el archivo salía fechado un día después que la fila del historial que está
+ * al lado del botón de descarga.
+ *
+ * @param {'csv'|'xlsx'} extension
+ */
 export function buildFileName(campaign, extension) {
-  const date = new Date(campaign?.date || Date.now()).toISOString().slice(0, 10);
-  return `campana_${date}.${extension}`;
+  const date = new Date(campaign?.date || Date.now());
+  const pad = (value) => String(value).padStart(2, '0');
+  const stamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  return `campana_${stamp}.${extension}`;
 }
