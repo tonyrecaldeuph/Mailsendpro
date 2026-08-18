@@ -1,6 +1,7 @@
 import { buildReportRows, toCSV, buildFileName } from './reportBuilder.js';
 import { summarize } from './campaignLog.js';
 import { auditEmails, applySuggestion, PROBLEM_LABELS } from './emailAudit.js';
+import { buildSuspectRows, toStyledHtmlTable, buildSuspectFileName } from './suspectReport.js';
 import { resolveEmail, resolveEmailKey } from './recipientFields.js';
 
 // ─── DOM refs ────────────────────────────────────────────────────────────────
@@ -80,6 +81,7 @@ const auditList         = document.getElementById('audit-list');
 const btnAuditCorregir  = document.getElementById('btn-audit-corregir');
 const btnAuditExcluir   = document.getElementById('btn-audit-excluir');
 const btnAuditIgnorar   = document.getElementById('btn-audit-ignorar');
+const btnAuditReporte   = document.getElementById('btn-audit-reporte');
 
 // Reporte e historial
 const navHistorial      = document.getElementById('nav-historial');
@@ -1166,6 +1168,27 @@ function excluirDirecciones() {
   updateUIWithContacts();
 }
 
+/**
+ * Reporte para revisar la planilla completa: salen todos los clientes con
+ * todas sus columnas, y las direcciones con problema van en rojo, cada caso
+ * con su color y su diagnostico.
+ *
+ * Sale como tabla HTML con extension .xls y no como .xlsx nativo porque la
+ * build libre de SheetJS no escribe estilos de celda: un .xlsx real saldria
+ * sin un solo color, y aca el color es justamente el punto. Excel avisa que
+ * la extension no coincide con el formato; se acepta y se abre normal.
+ */
+function descargarReporteDudosos() {
+  const report = buildSuspectRows(recipients, auditFindings);
+  if (report.rows.length === 0) {
+    alert("No hay destinatarios cargados para reportar.");
+    return;
+  }
+  const blob = new Blob([toStyledHtmlTable(report)], { type: "application/vnd.ms-excel;charset=utf-8;" });
+  triggerDownload(blob, buildSuspectFileName());
+}
+
+btnAuditReporte.addEventListener("click", descargarReporteDudosos);
 btnAuditCorregir.addEventListener('click', corregirDirecciones);
 btnAuditExcluir.addEventListener('click', excluirDirecciones);
 btnAuditIgnorar.addEventListener('click', () => {
