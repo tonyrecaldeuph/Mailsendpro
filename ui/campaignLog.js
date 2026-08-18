@@ -11,8 +11,13 @@
  * seguir y de testear.
  */
 
-/** Estados posibles de una entrada de resultado. */
-export const RESULT_STATUS = { SENT: 'enviado', ERROR: 'error', PENDING: 'pendiente' };
+/**
+ * Estados posibles de una entrada de resultado.
+ * OMITTED es para las direcciones que el usuario descartó antes de enviar
+ * porque la revisión previa las marcó como probables rebotes: quedan en el
+ * reporte con su motivo en vez de desaparecer sin dejar rastro.
+ */
+export const RESULT_STATUS = { SENT: 'enviado', ERROR: 'error', PENDING: 'pendiente', OMITTED: 'omitido' };
 
 /** Estados posibles de una campaña. Se muestran tal cual en la UI. */
 export const CAMPAIGN_STATUS = {
@@ -58,7 +63,8 @@ export function summarize(campaign) {
   const enviados = results.filter((r) => r.status === RESULT_STATUS.SENT).length;
   const errores = results.filter((r) => r.status === RESULT_STATUS.ERROR).length;
   const pendientes = results.filter((r) => r.status === RESULT_STATUS.PENDING).length;
-  return { total: campaign?.total || 0, enviados, errores, pendientes, procesados: enviados + errores };
+  const omitidos = results.filter((r) => r.status === RESULT_STATUS.OMITTED).length;
+  return { total: campaign?.total || 0, enviados, errores, pendientes, omitidos, procesados: enviados + errores };
 }
 
 /**

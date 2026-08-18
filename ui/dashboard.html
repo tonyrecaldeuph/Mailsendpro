@@ -57,6 +57,19 @@
           El archivo debe tener una columna <strong>CORREO CLIENTE</strong> (o "email") en la primera fila. Cualquier otra columna (ej. NOMBRE CLIENTE, MONTO POR COBRAR) queda disponible como variable del mensaje.
         </div>
 
+        <div id="audit-banner" style="display: none; margin-bottom: var(--spacing-sm); padding: 12px; background: rgba(245, 158, 11, 0.12); border: 1px solid #f59e0b; border-radius: var(--radius-sm);">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+            <strong id="audit-title" style="font-size: 0.9rem; color: var(--text-main);"></strong>
+            <span id="audit-status" style="font-size: 0.75rem; color: var(--text-muted);"></span>
+          </div>
+          <div id="audit-list" style="margin-top: 8px; max-height: 120px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; line-height: 1.7;"></div>
+          <div style="display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap;">
+            <button class="btn btn-accent" id="btn-audit-corregir" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">Corregir las mal escritas</button>
+            <button class="btn btn-muted" id="btn-audit-excluir" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">Excluirlas del envío</button>
+            <button class="btn btn-muted" id="btn-audit-ignorar" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">Enviar igual</button>
+          </div>
+        </div>
+
         <div id="contacts-list" class="contacts-list">
           <div id="contacts-header" class="contact-row contact-row-header" style="display: none;"></div>
           <div style="text-align: center; color: var(--text-muted); padding: 20px;">
@@ -284,6 +297,10 @@ Tu monto por cobrar es {MONTO POR COBRAR}..."></div>
           <div>
             <div style="font-size: 1.6rem; font-weight: bold; color: #fbbf24;" id="resumen-pendientes">0</div>
             <div style="font-size: 0.8rem; color: var(--text-muted);">Pendientes</div>
+          </div>
+          <div id="resumen-omitidos-bloque" style="display: none;">
+            <div style="font-size: 1.6rem; font-weight: bold; color: #94a3b8;" id="resumen-omitidos">0</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">Omitidas</div>
           </div>
         </div>
         <div style="display: flex; gap: 10px; margin-bottom: 12px;">

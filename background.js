@@ -86,7 +86,15 @@ async function recoverInterruptedCampaign() {
   // intentaron, que es exactamente el caso en que el usuario más necesita
   // saber quiénes quedaron afuera.
   const allRecipients = await loadRecipients();
-  const remaining = allRecipients.slice(pending.results.length).map((item) => ({
+
+  // Se cuentan solo los intentos reales: las direcciones omitidas también son
+  // resultados, pero no salen de esta lista, así que incluirlas correría el
+  // corte y dejaría fuera del reporte a destinatarios que sí faltaban.
+  const attempted = pending.results.filter(
+    (r) => r.status === RESULT_STATUS.SENT || r.status === RESULT_STATUS.ERROR
+  ).length;
+
+  const remaining = allRecipients.slice(attempted).map((item) => ({
     email: resolveEmail(item),
     contactData: item
   }));
@@ -154,12 +162,31 @@ async function runCampaign(payload, account) {
   pausedAccount = null;
   currentProgress.failedEmails = [];
 
+  const omitted = payload.omitted || [];
+
   currentCampaign = createCampaign({
-    total: payload.recipients.length,
+    // El total incluye las descartadas: el reporte tiene que cuadrar con la
+    // cantidad de filas que el usuario cargó, no solo con las que se enviaron.
+    total: payload.recipients.length + omitted.length,
     account: account.email,
     subject: payload.subject || '',
     startedAt: Date.now()
   });
+
+  // Las direcciones que la revisión previa marcó como probables rebotes y el
+  // usuario decidió no enviar entran al registro antes de arrancar: el
+  // historial debe decir por qué no se les escribió, en vez de que
+  // simplemente falten.
+  omitted.forEach((item) => {
+    currentCampaign = appendResult(currentCampaign, {
+      email: item.email,
+      status: RESULT_STATUS.OMITTED,
+      reason: item.reason || 'Descartada antes de enviar',
+      contactData: item.contactData || {},
+      timestamp: Date.now()
+    });
+  });
+
   await saveCurrent(currentCampaign);
   await saveRecipients(payload.recipients);
 

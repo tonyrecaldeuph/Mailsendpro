@@ -23,7 +23,7 @@ const emptyState = document.getElementById('empty-state');
 
 const LIVE_LOG_LIMIT = 50;
 
-const STATUS_ICONS = { enviado: '✅', error: '❌', pendiente: '⏳' };
+const STATUS_ICONS = { enviado: '✅', error: '❌', pendiente: '⏳', omitido: '⊘' };
 
 // Cuántos resultados lleva pintados el log. Background emite progreso también
 // al pausar y al reanudar, con el mismo último resultado: sin este contador,

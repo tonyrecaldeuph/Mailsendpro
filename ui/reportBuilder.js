@@ -13,7 +13,8 @@ import { resolveEmailKey } from './recipientFields.js';
 const STATUS_LABELS = {
   enviado: 'Enviado',
   error: 'Error',
-  pendiente: 'Pendiente'
+  pendiente: 'Pendiente',
+  omitido: 'Omitido'
 };
 
 const FIXED_HEADERS = ['Correo', 'Estado', 'Motivo'];

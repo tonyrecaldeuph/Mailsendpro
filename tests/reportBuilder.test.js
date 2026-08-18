@@ -68,6 +68,20 @@ test('un contacto al que le falta una columna deja la celda vacía, no undefined
   assert.deepEqual(rows[1], ['b@b.com', 'Enviado', '', 'Beto', '']);
 });
 
+test('las direcciones omitidas salen en el reporte con su motivo', () => {
+  const { rows } = buildReportRows({
+    ...campaign,
+    results: [{
+      email: 'juan@gmial.com',
+      status: 'omitido',
+      reason: 'Dominio mal escrito (¿gmail.com?)',
+      timestamp: 1,
+      contactData: { 'CORREO CLIENTE': 'juan@gmial.com', NOMBRE: 'Juan' }
+    }]
+  });
+  assert.deepEqual(rows[0], ['juan@gmial.com', 'Omitido', 'Dominio mal escrito (¿gmail.com?)', 'Juan']);
+});
+
 test('una campaña sin resultados no produce filas ni rompe', () => {
   const { headers, rows } = buildReportRows({ ...campaign, results: [] });
   assert.deepEqual(headers, []);

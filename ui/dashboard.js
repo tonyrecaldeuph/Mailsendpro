@@ -1,5 +1,7 @@
 import { buildReportRows, toCSV, buildFileName } from './reportBuilder.js';
 import { summarize } from './campaignLog.js';
+import { auditEmails, applySuggestion, PROBLEM_LABELS } from './emailAudit.js';
+import { resolveEmail, resolveEmailKey } from './recipientFields.js';
 
 // ─── DOM refs ────────────────────────────────────────────────────────────────
 const fileInput         = document.getElementById('file-import');
@@ -68,6 +70,15 @@ const licenseInfo       = document.getElementById('license-info');
 const inputLicenseKey   = document.getElementById('input-license-key');
 const btnActivarLicencia = document.getElementById('btn-activar-licencia');
 
+// Revisión previa de direcciones
+const auditBanner       = document.getElementById('audit-banner');
+const auditTitle        = document.getElementById('audit-title');
+const auditStatus       = document.getElementById('audit-status');
+const auditList         = document.getElementById('audit-list');
+const btnAuditCorregir  = document.getElementById('btn-audit-corregir');
+const btnAuditExcluir   = document.getElementById('btn-audit-excluir');
+const btnAuditIgnorar   = document.getElementById('btn-audit-ignorar');
+
 // Reporte e historial
 const navHistorial      = document.getElementById('nav-historial');
 const modalHistorial    = document.getElementById('modal-historial');
@@ -77,6 +88,8 @@ const modalResumen      = document.getElementById('modal-resumen');
 const resumenEnviados   = document.getElementById('resumen-enviados');
 const resumenErrores    = document.getElementById('resumen-errores');
 const resumenPendientes = document.getElementById('resumen-pendientes');
+const resumenOmitidos   = document.getElementById('resumen-omitidos');
+const resumenOmitidosBloque = document.getElementById('resumen-omitidos-bloque');
 const btnResumenCSV     = document.getElementById('btn-resumen-csv');
 const btnResumenXLSX    = document.getElementById('btn-resumen-xlsx');
 const btnCerrarResumen  = document.getElementById('btn-cerrar-resumen');
@@ -95,6 +108,9 @@ let gmailAccount = null;
 let hasPromptedForGmail = false;
 
 let lastCampaign = null;
+// Direcciones excluidas por la revisión previa. No se envían, pero viajan en el
+// payload para quedar registradas en el reporte con su motivo.
+let omittedRecipients = [];
 // Se resuelve al cargar porque chrome.sidePanel.open() exige un gesto del
 // usuario: si se pidiera la ventana dentro del click, el await perdería el
 // gesto y Chrome rechazaría la apertura.
@@ -516,6 +532,7 @@ async function handleFileImport(event) {
     recipients = [...recipients, ...imported];
     availableVariables = DataProcessor.getAvailableVariables(recipients);
     updateUIWithContacts();
+    runEmailAudit();
   } catch (error) {
     alert(error);
   } finally {
@@ -530,6 +547,9 @@ function clearListHandler() {
   if (confirm('¿Estás seguro de que deseas limpiar la lista de destinatarios?')) {
     recipients = [];
     availableVariables = [];
+    omittedRecipients = [];
+    auditFindings = [];
+    renderAuditBanner();
     updateUIWithContacts();
   }
 }
@@ -733,6 +753,7 @@ function startSend() {
     recipients,
     subject:      subjectInput.value,
     message:      messageToHtml(),
+    omitted:      omittedRecipients,
     attachments:  [...attachments, ...pdfAttachments],
     delaySeconds: parseInt(delaySeconds.value) || 10
   };
@@ -1045,6 +1066,105 @@ document.querySelectorAll('.fmt-btn').forEach((btn) => {
   });
 });
 
+// ─── Revisión previa de direcciones ──────────────────────────────────────────
+// Detecta antes de enviar lo que la API de Gmail no avisa: un 200 al enviar
+// solo significa "lo acepté para entregar", y el rebote llega después como
+// correo del mailer-daemon a la bandeja, fuera del alcance de la extensión.
+
+/**
+ * Direcciones marcadas por la revisión, con el motivo. Se usan para excluirlas
+ * del envío y, sobre todo, para que queden en el reporte como omitidas.
+ */
+let auditFindings = [];
+
+function renderAuditBanner() {
+  if (auditFindings.length === 0) {
+    auditBanner.style.display = 'none';
+    return;
+  }
+
+  auditTitle.textContent = `⚠️ ${auditFindings.length} ${auditFindings.length === 1 ? 'dirección sospechosa' : 'direcciones sospechosas'}`;
+  auditStatus.textContent = 'no se han enviado todavía';
+  auditList.innerHTML = '';
+
+  auditFindings.forEach((finding) => {
+    const row = document.createElement('div');
+    const detalle = finding.suggestion
+      ? `¿quisiste decir ${finding.suggestion}?`
+      : PROBLEM_LABELS[finding.problem] || 'Dirección dudosa';
+    row.textContent = `${finding.email} → ${detalle}`;
+    row.style.color = finding.suggestion ? 'var(--text-main)' : '#fbbf24';
+    auditList.appendChild(row);
+  });
+
+  // Corregir solo tiene sentido si hay typos con sugerencia.
+  btnAuditCorregir.style.display = auditFindings.some((f) => f.suggestion) ? '' : 'none';
+  auditBanner.style.display = '';
+}
+
+async function runEmailAudit() {
+  if (recipients.length === 0) {
+    auditFindings = [];
+    renderAuditBanner();
+    return;
+  }
+
+  auditBanner.style.display = '';
+  auditTitle.textContent = 'Revisando las direcciones...';
+  auditStatus.textContent = '';
+  auditList.innerHTML = '';
+
+  auditFindings = await auditEmails(recipients.map((r) => resolveEmail(r)));
+  renderAuditBanner();
+}
+
+/** Aplica las correcciones de dominio sobre la columna de correo del contacto. */
+function corregirDirecciones() {
+  const correcciones = new Map(
+    auditFindings.filter((f) => f.suggestion).map((f) => [f.email, applySuggestion(f.email, f.suggestion)])
+  );
+
+  recipients = recipients.map((recipient) => {
+    const key = resolveEmailKey(recipient);
+    if (!key) return recipient;
+    const corregido = correcciones.get(String(recipient[key] || '').trim());
+    return corregido ? { ...recipient, [key]: corregido } : recipient;
+  });
+
+  updateUIWithContacts();
+  runEmailAudit();
+}
+
+/**
+ * Saca del envío las direcciones marcadas, pero las conserva para mandarlas al
+ * registro de la campaña: el historial tiene que mostrar por qué no se les
+ * escribió, no simplemente omitirlas.
+ */
+function excluirDirecciones() {
+  const marcadas = new Map(auditFindings.map((f) => [
+    f.email,
+    f.suggestion ? `Dominio mal escrito (¿${f.suggestion}?)` : (PROBLEM_LABELS[f.problem] || 'Dirección dudosa')
+  ]));
+
+  omittedRecipients = recipients
+    .filter((r) => marcadas.has(resolveEmail(r)))
+    .map((r) => ({ email: resolveEmail(r), reason: marcadas.get(resolveEmail(r)), contactData: r }));
+
+  recipients = recipients.filter((r) => !marcadas.has(resolveEmail(r)));
+
+  auditFindings = [];
+  renderAuditBanner();
+  availableVariables = DataProcessor.getAvailableVariables(recipients);
+  updateUIWithContacts();
+}
+
+btnAuditCorregir.addEventListener('click', corregirDirecciones);
+btnAuditExcluir.addEventListener('click', excluirDirecciones);
+btnAuditIgnorar.addEventListener('click', () => {
+  auditFindings = [];
+  renderAuditBanner();
+});
+
 // ─── Reporte e historial ─────────────────────────────────────────────────────
 
 /**
@@ -1096,6 +1216,13 @@ function showSummary(summary) {
   resumenEnviados.textContent   = summary?.enviados ?? 0;
   resumenErrores.textContent    = summary?.errores ?? 0;
   resumenPendientes.textContent = summary?.pendientes ?? 0;
+
+  // Las omitidas solo se muestran si las hubo: en la mayoría de las campañas
+  // esta cifra es cero y ocupar lugar con un cero es ruido.
+  const omitidos = summary?.omitidos ?? 0;
+  resumenOmitidos.textContent = omitidos;
+  resumenOmitidosBloque.style.display = omitidos > 0 ? '' : 'none';
+
   openModal(modalResumen);
 }
 

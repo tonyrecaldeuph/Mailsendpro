@@ -55,7 +55,25 @@ test('summarize cuenta enviados, errores y pendientes por separado', () => {
   campaign = appendResult(campaign, { email: 'b@b.com', status: 'error', reason: 'x', timestamp: 2 });
   campaign = appendResult(campaign, { email: 'c@b.com', status: 'pendiente', timestamp: 3 });
 
-  assert.deepEqual(summarize(campaign), { total: 3, enviados: 1, errores: 1, pendientes: 1, procesados: 2 });
+  assert.deepEqual(summarize(campaign), { total: 3, enviados: 1, errores: 1, pendientes: 1, omitidos: 0, procesados: 2 });
+});
+
+test('las direcciones omitidas se cuentan aparte y no como errores', () => {
+  let campaign = createCampaign({ total: 3, startedAt: 0 });
+  campaign = appendResult(campaign, { email: 'a@b.com', status: 'enviado', timestamp: 1 });
+  campaign = appendResult(campaign, {
+    email: 'juan@gmial.com',
+    status: 'omitido',
+    reason: 'Dominio mal escrito',
+    timestamp: 2
+  });
+
+  const resumen = summarize(campaign);
+  assert.equal(resumen.omitidos, 1);
+  assert.equal(resumen.errores, 0);
+  // Un omitido nunca se intentó, así que no cuenta como procesado: si contara,
+  // la barra de progreso arrancaría adelantada.
+  assert.equal(resumen.procesados, 1);
 });
 
 test('un pendiente nunca se cuenta como enviado', () => {
@@ -109,7 +127,7 @@ test('finalizeCampaign marca como pendientes a los destinatarios no procesados',
   assert.deepEqual(closed.results.slice(1).map((r) => r.status), ['pendiente', 'pendiente']);
   assert.equal(closed.results[1].reason, 'Campaña cancelada por el usuario');
   assert.deepEqual(closed.results[1].contactData, { NOMBRE: 'Beto' });
-  assert.deepEqual(summarize(closed), { total: 3, enviados: 1, errores: 0, pendientes: 2, procesados: 1 });
+  assert.deepEqual(summarize(closed), { total: 3, enviados: 1, errores: 0, pendientes: 2, omitidos: 0, procesados: 1 });
 });
 
 test('finalizeCampaign sin destinatarios restantes solo cierra la campaña', () => {
