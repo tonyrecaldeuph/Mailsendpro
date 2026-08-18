@@ -168,7 +168,10 @@ function restoreState() {
     if (state.smtpFrom      !== undefined) smtpFrom.value       = state.smtpFrom;
 
     if (state.recipients && state.recipients.length) {
-      recipients = state.recipients;
+      // Se filtra también acá y no solo al importar: una lista cargada antes de
+      // que se ignoraran las columnas internas sigue guardada con ellas, y sin
+      // esto reaparecerían al reabrir el dashboard.
+      recipients = DataProcessor.stripIgnoredColumns(state.recipients);
       availableVariables = DataProcessor.getAvailableVariables(recipients);
       updateUIWithContacts();
     }
