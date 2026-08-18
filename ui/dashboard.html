@@ -57,16 +57,29 @@
           El archivo debe tener una columna <strong>CORREO CLIENTE</strong> (o "email") en la primera fila. Cualquier otra columna (ej. NOMBRE CLIENTE, MONTO POR COBRAR) queda disponible como variable del mensaje.
         </div>
 
-        <div id="audit-banner" style="display: none; margin-bottom: var(--spacing-sm); padding: 12px; background: rgba(245, 158, 11, 0.12); border: 1px solid #f59e0b; border-radius: var(--radius-sm);">
-          <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-            <strong id="audit-title" style="font-size: 0.9rem; color: var(--text-main);"></strong>
-            <span id="audit-status" style="font-size: 0.75rem; color: var(--text-muted);"></span>
+        <div id="audit-banner" style="display: none; margin-bottom: var(--spacing-sm);">
+
+          <!-- Correos de relleno: se excluyen solos, no hay nada que decidir -->
+          <div id="audit-excluded-block" style="display: none; padding: 10px 12px; background: rgba(148, 163, 184, 0.12); border: 1px solid #475569; border-radius: var(--radius-sm);">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+              <strong id="audit-excluded-title" style="font-size: 0.85rem; color: var(--text-muted);"></strong>
+              <button class="btn btn-muted" id="btn-audit-reincluir" style="padding: 4px 9px; font-size: 0.72rem;">Incluirlas igual</button>
+            </div>
+            <div id="audit-excluded-list" style="margin-top: 6px; max-height: 84px; overflow-y: auto; font-size: 0.76rem; font-family: monospace; line-height: 1.6; color: var(--text-dim);"></div>
           </div>
-          <div id="audit-list" style="margin-top: 8px; max-height: 120px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; line-height: 1.7;"></div>
-          <div style="display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap;">
-            <button class="btn btn-accent" id="btn-audit-corregir" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">Corregir las mal escritas</button>
-            <button class="btn btn-muted" id="btn-audit-excluir" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">Excluirlas del envío</button>
-            <button class="btn btn-muted" id="btn-audit-ignorar" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">Enviar igual</button>
+
+          <!-- Dudosas: las decide el usuario -->
+          <div id="audit-suspect-block" style="display: none; margin-top: var(--spacing-sm); padding: 12px; background: rgba(245, 158, 11, 0.12); border: 1px solid #f59e0b; border-radius: var(--radius-sm);">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+              <strong id="audit-title" style="font-size: 0.9rem; color: var(--text-main);"></strong>
+              <span id="audit-status" style="font-size: 0.75rem; color: var(--text-muted);"></span>
+            </div>
+            <div id="audit-list" style="margin-top: 8px; max-height: 120px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; line-height: 1.7;"></div>
+            <div style="display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap;">
+              <button class="btn btn-accent" id="btn-audit-corregir" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">Corregir las mal escritas</button>
+              <button class="btn btn-muted" id="btn-audit-excluir" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">Excluirlas del envío</button>
+              <button class="btn btn-muted" id="btn-audit-ignorar" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">Enviar igual</button>
+            </div>
           </div>
         </div>
 
