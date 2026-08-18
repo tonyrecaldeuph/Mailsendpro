@@ -24,6 +24,46 @@ export const COMMON_DOMAINS = [
   'icloud.com'
 ];
 
+/**
+ * Direcciones de relleno: lo que el operador escribe en el Excel cuando el
+ * cliente no dio correo. Son sintácticamente válidas y el dominio existe, así
+ * que ni la validación de formato ni la consulta de DNS las detectan — pero
+ * rebotan siempre.
+ *
+ * Se compara la parte anterior al arroba, no la dirección completa, porque el
+ * mismo relleno aparece con distintos dominios (notiene@gmail.com,
+ * notiene@hotmail.com). La comparación es exacta a propósito: por prefijo,
+ * un cliente llamado Sneider o Sinclair caería por error.
+ *
+ * Para agregar un relleno nuevo basta con sumarlo a esta lista.
+ */
+export const PLACEHOLDER_LOCAL_PARTS = [
+  'sincorreo',
+  'sincorreo1',
+  'sinemail',
+  'sinmail',
+  'notiene',
+  'notienecorreo',
+  'notienemail',
+  'nomail',
+  'noemail',
+  'nocorreo',
+  'sngmail',
+  'sn',
+  'snc',
+  'sin',
+  'ns',
+  'sc'
+];
+
+/** @returns {boolean} true si la dirección es un relleno conocido. */
+export function isPlaceholderEmail(email) {
+  const text = String(email || '').trim().toLowerCase();
+  const at = text.lastIndexOf('@');
+  if (at <= 0) return false;
+  return PLACEHOLDER_LOCAL_PARTS.includes(text.slice(0, at));
+}
+
 export function getDomain(email) {
   const text = String(email || '').trim().toLowerCase();
   const at = text.lastIndexOf('@');

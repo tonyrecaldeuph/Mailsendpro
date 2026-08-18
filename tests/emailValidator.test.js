@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getDomain, suggestDomain, levenshtein, interpretDnsResponse } from '../ui/emailValidator.js';
+import { getDomain, suggestDomain, levenshtein, interpretDnsResponse, isPlaceholderEmail } from '../ui/emailValidator.js';
 
 test('getDomain devuelve el dominio en minúsculas', () => {
   assert.equal(getDomain('Ana@Gmail.COM'), 'gmail.com');
@@ -44,6 +44,49 @@ test('un dominio corporativo propio no se confunde con uno común', () => {
 test('un dominio vacío no rompe', () => {
   assert.equal(suggestDomain(''), null);
   assert.equal(suggestDomain(null), null);
+});
+
+// ─── Correos de relleno ──────────────────────────────────────────────────────
+
+test('detecta los correos de relleno que carga el operador', () => {
+  [
+    'sincorreo@gmail.com',
+    'sn@gmail.com',
+    'snc@gmail.com',
+    'sin@gmail.com',
+    'ns@gmail.com',
+    'sc@gmail.com',
+    'notiene@gmail.com',
+    'notiene@hotmail.com',
+    'sngmail@gmail.com',
+    'nomail@gmail.com'
+  ].forEach((email) => {
+    assert.equal(isPlaceholderEmail(email), true, `debería marcar ${email}`);
+  });
+});
+
+test('el relleno se detecta en cualquier dominio, no solo en gmail', () => {
+  assert.equal(isPlaceholderEmail('notiene@outlook.com'), true);
+  assert.equal(isPlaceholderEmail('sincorreo@empresa.com.ec'), true);
+});
+
+test('no importan mayúsculas ni espacios alrededor', () => {
+  assert.equal(isPlaceholderEmail('  NoTiene@Gmail.com '), true);
+});
+
+test('una dirección real que empieza igual que un relleno no se marca', () => {
+  // La comparación es exacta sobre la parte local: si fuera por prefijo, un
+  // cliente llamado Sneider o una cuenta como "sinclair" caerían por error.
+  assert.equal(isPlaceholderEmail('sneider@gmail.com'), false);
+  assert.equal(isPlaceholderEmail('sinclair@gmail.com'), false);
+  assert.equal(isPlaceholderEmail('nsalgado@gmail.com'), false);
+  assert.equal(isPlaceholderEmail('scarlett@hotmail.com'), false);
+});
+
+test('una dirección normal no se marca', () => {
+  assert.equal(isPlaceholderEmail('ana.perez@gmail.com'), false);
+  assert.equal(isPlaceholderEmail(''), false);
+  assert.equal(isPlaceholderEmail(null), false);
 });
 
 // ─── Interpretación de la consulta DNS ───────────────────────────────────────

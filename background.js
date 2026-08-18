@@ -154,6 +154,38 @@ async function sendEmails(payload) {
   }
 }
 
+/**
+ * Foto de la campaña en curso, sin cerrarla ni archivarla.
+ *
+ * Es lo que permite descargar el avance cuando el envío se pausa porque la
+ * cuenta agotó su cuota: el reporte sale con los ya enviados, los que fallaron
+ * y —lo importante para retomar— los que todavía no se intentaron, en orden.
+ *
+ * @returns {Promise<Object|null>} null si no hay campaña en curso.
+ */
+async function buildCampaignSnapshot() {
+  if (!currentCampaign) return null;
+
+  const allRecipients = await loadRecipients();
+  const attempted = currentCampaign.results.filter(
+    (r) => r.status === RESULT_STATUS.SENT || r.status === RESULT_STATUS.ERROR
+  ).length;
+
+  const remaining = allRecipients.slice(attempted).map((item) => ({
+    email: resolveEmail(item),
+    contactData: item
+  }));
+
+  // finalizeCampaign no muta: devuelve una copia. La campaña real sigue en
+  // curso y se puede reanudar con la cuenta de relevo.
+  return finalizeCampaign(currentCampaign, {
+    status: currentCampaign.status,
+    finishedAt: Date.now(),
+    remaining,
+    reason: 'Todavía sin enviar: la cuenta alcanzó su límite diario'
+  });
+}
+
 /** Cuerpo de la campaña. Lo envuelve sendEmails, que garantiza la limpieza. */
 async function runCampaign(payload, account) {
   isPaused = false;
@@ -562,6 +594,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       await disconnect();
       sendResponse({ connected: false });
+    })();
+    return true;
+  }
+
+  if (message?.action === 'CAMPAIGN_SNAPSHOT') {
+    (async () => {
+      sendResponse({ campaign: await buildCampaignSnapshot() });
     })();
     return true;
   }

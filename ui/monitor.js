@@ -6,6 +6,11 @@
  * puede cerrar y reabrir a mitad de campaña sin consecuencias.
  */
 
+// Solo CSV desde acá: el .xlsx necesita SheetJS, casi un mega de librería que
+// no vale la pena cargar en un panel de 340 píxeles. El dashboard ofrece los
+// dos formatos.
+import { buildReportRows, toCSV, buildFileName } from './reportBuilder.js';
+
 const counterEl = document.getElementById('counter');
 const progressFill = document.getElementById('progress-fill');
 const currentEmailEl = document.getElementById('current-email');
@@ -18,6 +23,7 @@ const btnCancelar = document.getElementById('btn-cancelar');
 const quotaBanner = document.getElementById('quota-banner');
 const quotaText = document.getElementById('quota-text');
 const btnRelevo = document.getElementById('btn-relevo');
+const btnAvance = document.getElementById('btn-avance');
 const logEl = document.getElementById('log');
 const emptyState = document.getElementById('empty-state');
 
@@ -162,6 +168,29 @@ btnReanudar.addEventListener('click', () => {
 btnCancelar.addEventListener('click', () => {
   chrome.runtime.sendMessage({ action: 'cancelSend' }).catch(() => { });
   setControls('idle');
+});
+
+/**
+ * Baja el avance de la campaña pausada sin cerrarla: quién ya recibió el
+ * correo, quién falló y desde qué destinatario hay que retomar.
+ */
+btnAvance.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ action: 'CAMPAIGN_SNAPSHOT' }, (response) => {
+    if (chrome.runtime.lastError || !response?.campaign) return;
+
+    const report = buildReportRows(response.campaign);
+    if (report.headers.length === 0) return;
+
+    const blob = new Blob([toCSV(report)], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = buildFileName(response.campaign, 'csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
 });
 
 btnRelevo.addEventListener('click', () => {

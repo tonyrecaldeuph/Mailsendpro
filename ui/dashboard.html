@@ -178,6 +178,13 @@ Tu monto por cobrar es {MONTO POR COBRAR}..."></div>
         <div id="quota-banner" style="display: none; margin: 12px 0; padding: 12px; background: rgba(245, 158, 11, 0.12); border: 1px solid #f59e0b; border-radius: var(--radius-sm);">
           <p id="quota-banner-text" style="font-size: 0.85rem; color: var(--text-main); line-height: 1.5; margin: 0 0 10px 0;"></p>
           <button class="btn btn-accent btn-full" id="btn-relevo-cuenta">Conectar otra cuenta y continuar</button>
+          <p style="font-size: 0.75rem; color: var(--text-muted); margin: 10px 0 6px 0;">
+            Descarga el avance para ver quién ya recibió el correo y desde dónde retomar:
+          </p>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-muted" id="btn-avance-csv" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">📄 Avance en CSV</button>
+            <button class="btn btn-muted" id="btn-avance-xlsx" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">📊 Avance en Excel</button>
+          </div>
         </div>
 
         <div id="errorsContainer" style="display: none; margin-top: var(--spacing-md);">

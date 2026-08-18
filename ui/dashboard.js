@@ -56,6 +56,8 @@ const smtpFrom          = document.getElementById('smtpFrom');
 const quotaBanner       = document.getElementById('quota-banner');
 const quotaBannerText   = document.getElementById('quota-banner-text');
 const btnRelevoCuenta   = document.getElementById('btn-relevo-cuenta');
+const btnAvanceCSV      = document.getElementById('btn-avance-csv');
+const btnAvanceXLSX     = document.getElementById('btn-avance-xlsx');
 
 // Soporte
 const navSoporte        = document.getElementById('nav-soporte');
@@ -1298,6 +1300,26 @@ btnBorrarHistorial.addEventListener('click', () => {
     renderHistory([]);
   });
 });
+
+/**
+ * Descarga el avance de la campaña que está pausada, sin cerrarla. Sirve para
+ * ver quién ya recibió el correo y desde qué destinatario retomar con la otra
+ * cuenta; los que faltan salen como Pendiente, en el mismo orden del Excel.
+ */
+function descargarAvance(formato) {
+  chrome.runtime.sendMessage({ action: 'CAMPAIGN_SNAPSHOT' }, (response) => {
+    if (chrome.runtime.lastError) return;
+    if (!response?.campaign) {
+      alert('No hay una campaña en curso de la que descargar el avance.');
+      return;
+    }
+    if (formato === 'csv') downloadCSV(response.campaign);
+    else downloadXLSX(response.campaign);
+  });
+}
+
+btnAvanceCSV.addEventListener('click', () => descargarAvance('csv'));
+btnAvanceXLSX.addEventListener('click', () => descargarAvance('xlsx'));
 
 btnCerrarResumen.addEventListener('click', () => closeModal(modalResumen));
 btnResumenCSV.addEventListener('click', () => { if (lastCampaign) downloadCSV(lastCampaign); });

@@ -7,7 +7,7 @@
  * distintos, así que son unas pocas consultas y no quinientas.
  */
 
-import { getDomain, suggestDomain, interpretDnsResponse } from './emailValidator.js';
+import { getDomain, suggestDomain, interpretDnsResponse, isPlaceholderEmail } from './emailValidator.js';
 
 const DNS_ENDPOINT = 'https://dns.google/resolve';
 
@@ -17,6 +17,7 @@ const DNS_ENDPOINT = 'https://dns.google/resolve';
 const domainCache = new Map();
 
 export const PROBLEM_LABELS = {
+  relleno: 'Correo de relleno (el cliente no dio uno)',
   typo: 'Dominio mal escrito',
   inexistente: 'El dominio no existe',
   'sin-correo': 'El dominio no recibe correo'
@@ -55,6 +56,13 @@ export async function auditEmails(emails) {
   const domainsToCheck = new Set();
 
   list.forEach((email) => {
+    // El relleno se revisa primero: su dominio suele ser gmail.com, o sea
+    // perfectamente válido, así que ninguna otra comprobación lo detectaría.
+    if (isPlaceholderEmail(email)) {
+      findings.push({ email, problem: 'relleno', suggestion: null });
+      return;
+    }
+
     const domain = getDomain(email);
     if (!domain) return;
     const suggestion = suggestDomain(domain);
