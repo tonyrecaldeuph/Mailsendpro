@@ -74,11 +74,6 @@ const btnActivarLicencia = document.getElementById('btn-activar-licencia');
 
 // Revisión previa de direcciones
 const auditBanner       = document.getElementById('audit-banner');
-const auditExcludedBlock = document.getElementById('audit-excluded-block');
-const auditExcludedTitle = document.getElementById('audit-excluded-title');
-const auditExcludedList = document.getElementById('audit-excluded-list');
-const btnAuditReincluir = document.getElementById('btn-audit-reincluir');
-const auditSuspectBlock = document.getElementById('audit-suspect-block');
 const auditTitle        = document.getElementById('audit-title');
 const auditStatus       = document.getElementById('audit-status');
 const auditList         = document.getElementById('audit-list');
@@ -1085,45 +1080,29 @@ document.querySelectorAll('.fmt-btn').forEach((btn) => {
 let auditFindings = [];
 
 function renderAuditBanner() {
-  // Bloque de las excluidas automáticamente (los correos de relleno).
-  const autoExcluidas = omittedRecipients.filter((o) => o.auto);
-  if (autoExcluidas.length > 0) {
-    auditExcludedTitle.textContent = `⊘ ${autoExcluidas.length} ${autoExcluidas.length === 1 ? 'correo de relleno excluido' : 'correos de relleno excluidos'}`;
-    auditExcludedList.innerHTML = '';
-    autoExcluidas.forEach((item) => {
-      const row = document.createElement('div');
-      row.textContent = item.email;
-      auditExcludedList.appendChild(row);
-    });
-    auditExcludedBlock.style.display = '';
-  } else {
-    auditExcludedBlock.style.display = 'none';
+  if (auditFindings.length === 0) {
+    auditBanner.style.display = 'none';
+    return;
   }
 
-  // Bloque de las dudosas, que decide el usuario.
-  if (auditFindings.length > 0) {
-    auditTitle.textContent = `⚠️ ${auditFindings.length} ${auditFindings.length === 1 ? 'dirección sospechosa' : 'direcciones sospechosas'}`;
-    auditStatus.textContent = 'no se han enviado todavía';
-    auditList.innerHTML = '';
+  auditTitle.textContent = `⚠️ ${auditFindings.length} ${auditFindings.length === 1 ? 'dirección dudosa' : 'direcciones dudosas'}`;
+  auditStatus.textContent = 'no se han enviado todavía';
+  auditList.innerHTML = '';
 
-    auditFindings.forEach((finding) => {
-      const row = document.createElement('div');
-      const detalle = finding.suggestion
-        ? `¿quisiste decir ${finding.suggestion}?`
-        : PROBLEM_LABELS[finding.problem] || 'Dirección dudosa';
-      row.textContent = `${finding.email} → ${detalle}`;
-      row.style.color = finding.suggestion ? 'var(--text-main)' : '#fbbf24';
-      auditList.appendChild(row);
-    });
+  auditFindings.forEach((finding) => {
+    const row = document.createElement('div');
+    const detalle = finding.suggestion
+      ? `¿quisiste decir ${finding.suggestion}?`
+      : PROBLEM_LABELS[finding.problem] || 'Dirección dudosa';
+    row.textContent = `${finding.email} → ${detalle}`;
+    row.style.color = finding.suggestion ? 'var(--text-main)' : '#fbbf24';
+    auditList.appendChild(row);
+  });
 
-    // Corregir solo tiene sentido si hay typos con sugerencia.
-    btnAuditCorregir.style.display = auditFindings.some((f) => f.suggestion) ? '' : 'none';
-    auditSuspectBlock.style.display = '';
-  } else {
-    auditSuspectBlock.style.display = 'none';
-  }
-
-  auditBanner.style.display = (autoExcluidas.length > 0 || auditFindings.length > 0) ? '' : 'none';
+  // Corregir solo tiene sentido si hay dominios mal escritos con sugerencia;
+  // un correo de relleno no se corrige, se excluye o se manda igual.
+  btnAuditCorregir.style.display = auditFindings.some((f) => f.suggestion) ? '' : 'none';
+  auditBanner.style.display = '';
 }
 
 async function runEmailAudit() {
@@ -1134,47 +1113,13 @@ async function runEmailAudit() {
   }
 
   auditBanner.style.display = '';
-  auditSuspectBlock.style.display = '';
   auditTitle.textContent = 'Revisando las direcciones...';
   auditStatus.textContent = '';
   auditList.innerHTML = '';
 
-  const hallazgos = await auditEmails(recipients.map((r) => resolveEmail(r)));
-
-  // Los correos de relleno se sacan del envío sin preguntar: no son un cliente
-  // al que se le pueda escribir, son el hueco que dejó quien cargó la planilla.
-  // Los demás casos sí se consultan, porque un dominio mal escrito se puede
-  // corregir y uno dudoso podría ser un cliente bueno.
-  const relleno = new Set(hallazgos.filter((f) => f.problem === 'relleno').map((f) => f.email));
-  if (relleno.size > 0) {
-    const nuevasExclusiones = recipients
-      .filter((r) => relleno.has(resolveEmail(r)))
-      .map((r) => ({
-        email: resolveEmail(r),
-        reason: PROBLEM_LABELS.relleno,
-        contactData: r,
-        auto: true
-      }));
-
-    omittedRecipients = [...omittedRecipients, ...nuevasExclusiones];
-    recipients = recipients.filter((r) => !relleno.has(resolveEmail(r)));
-    availableVariables = DataProcessor.getAvailableVariables(recipients);
-    updateUIWithContacts();
-  }
-
-  auditFindings = hallazgos.filter((f) => f.problem !== 'relleno');
-  renderAuditBanner();
-}
-
-/** Devuelve al envío los correos de relleno que se habían excluido solos. */
-function reincluirRelleno() {
-  const devueltos = omittedRecipients.filter((o) => o.auto);
-  if (devueltos.length === 0) return;
-
-  recipients = [...recipients, ...devueltos.map((o) => o.contactData)];
-  omittedRecipients = omittedRecipients.filter((o) => !o.auto);
-  availableVariables = DataProcessor.getAvailableVariables(recipients);
-  updateUIWithContacts();
+  // Todo lo dudoso se informa y lo decide el usuario: tanto los correos de
+  // relleno como los problemas de dominio. Nada sale del envío por su cuenta.
+  auditFindings = await auditEmails(recipients.map((r) => resolveEmail(r)));
   renderAuditBanner();
 }
 
@@ -1221,7 +1166,6 @@ function excluirDirecciones() {
   updateUIWithContacts();
 }
 
-btnAuditReincluir.addEventListener('click', reincluirRelleno);
 btnAuditCorregir.addEventListener('click', corregirDirecciones);
 btnAuditExcluir.addEventListener('click', excluirDirecciones);
 btnAuditIgnorar.addEventListener('click', () => {
