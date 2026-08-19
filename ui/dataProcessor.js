@@ -10,6 +10,34 @@
 // se aceptan alias comunes para no romper otros archivos.
 const EMAIL_COLUMN_ALIASES = ['correo cliente', 'email', 'correo', 'correo electronico', 'e-mail'];
 
+/**
+ * Columnas de uso interno de la empresa que no sirven para el correo. Se
+ * descartan al importar: no se ofrecen como variables, no se muestran en la
+ * tabla de destinatarios, no se guardan en el navegador y no salen en el
+ * reporte. Menos columnas es también menos que leer en pantalla.
+ *
+ * La comparación es por nombre completo ya normalizado, así que "JEFE" se
+ * descarta pero "JEFE DE ZONA" se conserva. Para dejar de ignorar una columna
+ * basta con sacarla de esta lista.
+ */
+const IGNORED_COLUMNS = [
+    'vendedor',
+    'oficial credito archivos',
+    'oficial credito contrato',
+    'oficial credito llamada',
+    // El archivo real trae este encabezado sin la F; se aceptan las dos formas
+    // para que no dependa de que alguien corrija el Excel.
+    'ocial credito llamada',
+    'hh',
+    'gestor',
+    'supervisor',
+    'jefe'
+];
+
+function isIgnoredColumn(header) {
+    return IGNORED_COLUMNS.includes(normalizeHeader(header));
+}
+
 const DataProcessor = {
     /**
      * Lee un archivo Excel y devuelve contactos con todas sus columnas.
@@ -54,6 +82,7 @@ const DataProcessor = {
                         const contact = {};
                         headers.forEach((header, colIndex) => {
                             if (!header) return;
+                            if (isIgnoredColumn(header)) return;
                             contact[header] = String(row[colIndex] ?? '').trim();
                         });
                         contacts.push(contact);
@@ -73,6 +102,28 @@ const DataProcessor = {
 
             reader.onerror = () => reject('Error al leer el archivo.');
             reader.readAsArrayBuffer(file);
+        });
+    },
+
+    /**
+     * Quita las columnas internas de una lista de contactos ya cargada.
+     *
+     * Hace falta además del filtro de readContacts porque los destinatarios
+     * quedan guardados en el navegador: sin esto, una lista importada antes de
+     * este cambio seguiría mostrando las columnas viejas al reabrir.
+     *
+     * @param {Array<Object>} contacts
+     * @returns {Array<Object>} Contactos sin las columnas ignoradas.
+     */
+    stripIgnoredColumns(contacts) {
+        if (!contacts || contacts.length === 0) return [];
+        return contacts.map((contact) => {
+            const limpio = {};
+            Object.keys(contact).forEach((header) => {
+                if (isIgnoredColumn(header)) return;
+                limpio[header] = contact[header];
+            });
+            return limpio;
         });
     },
 

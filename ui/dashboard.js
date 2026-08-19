@@ -1,3 +1,9 @@
+import { buildReportRows, toCSV, buildFileName } from './reportBuilder.js';
+import { summarize } from './campaignLog.js';
+import { auditEmails, applySuggestion, PROBLEM_LABELS } from './emailAudit.js';
+import { buildSuspectRows, toStyledHtmlTable, buildSuspectFileName } from './suspectReport.js';
+import { resolveEmail, resolveEmailKey } from './recipientFields.js';
+
 // ─── DOM refs ────────────────────────────────────────────────────────────────
 const fileInput         = document.getElementById('file-import');
 const importBtn         = document.getElementById('btn-import');
@@ -38,17 +44,26 @@ const resumeBtn            = document.getElementById('btn-reanudar');
 const cancelBtn            = document.getElementById('btn-cancelar');
 const resetBtn            = document.getElementById('btn-reiniciar');
 
-// Configuración (antes "Enlace Mágico")
+// Configuración
 const navConfiguracion  = document.getElementById('nav-configuracion');
 const modalConfiguracion = document.getElementById('modal-configuracion');
 const btnCerrarConfiguracion = document.getElementById('btn-cerrar-configuracion');
-const apiKeyInput       = document.getElementById('apiKey');
-const apiTokenInput     = document.getElementById('apiToken');
+const gmailStatusEl     = document.getElementById('gmail-status');
+const btnConectarGmail  = document.getElementById('btn-conectar-gmail');
+const btnDesconectarGmail = document.getElementById('btn-desconectar-gmail');
 const smtpFrom          = document.getElementById('smtpFrom');
+
+// Relevo de cuenta por cuota agotada
+const quotaBanner       = document.getElementById('quota-banner');
+const quotaBannerText   = document.getElementById('quota-banner-text');
+const btnRelevoCuenta   = document.getElementById('btn-relevo-cuenta');
+const btnAvanceCSV      = document.getElementById('btn-avance-csv');
+const btnAvanceXLSX     = document.getElementById('btn-avance-xlsx');
 
 // Soporte
 const navSoporte        = document.getElementById('nav-soporte');
 const modalSoporte       = document.getElementById('modal-soporte');
+const linkWebSoporte     = document.getElementById('link-web-soporte');
 
 // Licencia
 const navLicencia       = document.getElementById('nav-licencia');
@@ -57,6 +72,31 @@ const licenseBadge      = document.getElementById('license-badge');
 const licenseInfo       = document.getElementById('license-info');
 const inputLicenseKey   = document.getElementById('input-license-key');
 const btnActivarLicencia = document.getElementById('btn-activar-licencia');
+
+// Revisión previa de direcciones
+const auditBanner       = document.getElementById('audit-banner');
+const auditTitle        = document.getElementById('audit-title');
+const auditStatus       = document.getElementById('audit-status');
+const auditList         = document.getElementById('audit-list');
+const btnAuditCorregir  = document.getElementById('btn-audit-corregir');
+const btnAuditExcluir   = document.getElementById('btn-audit-excluir');
+const btnAuditIgnorar   = document.getElementById('btn-audit-ignorar');
+const btnAuditReporte   = document.getElementById('btn-audit-reporte');
+
+// Reporte e historial
+const navHistorial      = document.getElementById('nav-historial');
+const modalHistorial    = document.getElementById('modal-historial');
+const historialLista    = document.getElementById('historial-lista');
+const btnBorrarHistorial = document.getElementById('btn-borrar-historial');
+const modalResumen      = document.getElementById('modal-resumen');
+const resumenEnviados   = document.getElementById('resumen-enviados');
+const resumenErrores    = document.getElementById('resumen-errores');
+const resumenPendientes = document.getElementById('resumen-pendientes');
+const resumenOmitidos   = document.getElementById('resumen-omitidos');
+const resumenOmitidosBloque = document.getElementById('resumen-omitidos-bloque');
+const btnResumenCSV     = document.getElementById('btn-resumen-csv');
+const btnResumenXLSX    = document.getElementById('btn-resumen-xlsx');
+const btnCerrarResumen  = document.getElementById('btn-cerrar-resumen');
 
 // ─── State ───────────────────────────────────────────────────────────────────
 let recipients  = [];
@@ -68,33 +108,105 @@ let isPaused        = false;
 let currentFailedEmails = [];
 let isLicenseAllowed = false;
 let hasPromptedForLicense = false;
+let gmailAccount = null;
+let hasPromptedForGmail = false;
+
+let lastCampaign = null;
+// Direcciones excluidas por la revisión previa. No se envían, pero viajan en el
+// payload para quedar registradas en el reporte con su motivo.
+let omittedRecipients = [];
+// Se resuelve al cargar porque chrome.sidePanel.open() exige un gesto del
+// usuario: si se pidiera la ventana dentro del click, el await perdería el
+// gesto y Chrome rechazaría la apertura.
+let currentWindowId = null;
+chrome.windows.getCurrent().then((win) => { currentWindowId = win.id; }).catch(() => { });
+
+// Última posición del caret dentro del editor. El navegador descarta la
+// selección cuando el foco se va a otro elemento, así que se guarda acá para
+// poder insertar una variable exactamente donde el usuario estaba escribiendo.
+let lastEditorRange = null;
+
+document.addEventListener('selectionchange', () => {
+  const selection = window.getSelection();
+  if (selection.rangeCount > 0 && messageInput.contains(selection.anchorNode)) {
+    lastEditorRange = selection.getRangeAt(0).cloneRange();
+  }
+});
 
 // ─── Persistence ─────────────────────────────────────────────────────────────
+/**
+ * El editor enriquecido guarda HTML; los mensajes guardados por versiones
+ * anteriores son texto plano. Cuál es cuál se decide por la marca que graba
+ * `saveState`, no adivinando por el contenido: el editor está estilado con
+ * `white-space: pre-wrap` y bajo ese estilo el navegador sí puede dejar saltos
+ * de línea crudos en el innerHTML, así que olfatear `\n` daba por texto plano
+ * a mensajes con formato y los mostraba con las etiquetas a la vista.
+ */
+function restoreMessage(stored, format) {
+  if (format === 'html') return stored;
+
+  // Texto plano: se escapa siempre, no solo cuando hay saltos de línea. Un
+  // mensaje de una sola línea con "<" o "&" también se rompería al asignarlo
+  // como HTML, y el usuario perdería ese texto sin enterarse.
+  return String(stored)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\r?\n/g, '<br>');
+}
+
+/**
+ * El cuerpo que se manda a Gmail. Los saltos de línea crudos que `pre-wrap`
+ * permite dentro del editor no se ven en un correo `text/html`: sin esta
+ * conversión el destinatario recibe todo el mensaje en un solo párrafo
+ * corrido, aunque en el editor se viera separado en líneas.
+ */
+function messageToHtml() {
+  return messageInput.innerHTML.replace(/\r?\n/g, '<br>');
+}
+
 function saveState() {
   chrome.storage.local.set({
     subject:    subjectInput.value,
-    message:    messageInput.value,
+    message:    messageInput.innerHTML,
+    messageFormat: 'html',
     delaySeconds: delaySeconds.value,
     smtpFrom:   smtpFrom.value,
-    apiKey:     apiKeyInput.value,
-    apiToken:   apiTokenInput.value,
     recipients
   });
 }
 
 function restoreState() {
+  // Restos del backend de Apps Script: se limpian una sola vez para no dejar
+  // la URL vieja dando vueltas en el storage del cliente.
+  chrome.storage.local.remove(['apiKey', 'apiToken']);
+
   chrome.storage.local.get(null, (state) => {
     if (state.subject       !== undefined) subjectInput.value   = state.subject;
-    if (state.message       !== undefined) messageInput.value   = state.message;
+    if (state.message       !== undefined) messageInput.innerHTML = restoreMessage(state.message, state.messageFormat);
     if (state.delaySeconds  !== undefined) delaySeconds.value   = state.delaySeconds;
     if (state.smtpFrom      !== undefined) smtpFrom.value       = state.smtpFrom;
-    if (state.apiKey !== undefined) apiKeyInput.value = state.apiKey;
-    if (state.apiToken !== undefined) apiTokenInput.value = state.apiToken;
 
     if (state.recipients && state.recipients.length) {
-      recipients = state.recipients;
+      // Se filtra también acá y no solo al importar: una lista cargada antes de
+      // que se ignoraran las columnas internas sigue guardada con ellas, y sin
+      // esto reaparecerían al reabrir el dashboard.
+      recipients = DataProcessor.stripIgnoredColumns(state.recipients);
       availableVariables = DataProcessor.getAvailableVariables(recipients);
       updateUIWithContacts();
+    }
+
+    // El resumen no puede depender del mensaje `sendComplete`: abrir el panel
+    // lateral le saca el foco a este popup y Chrome lo cierra, así que cuando
+    // la campaña termina no queda nadie escuchando. Se recupera de la campaña
+    // archivada, que es la que además alimenta los botones de descarga.
+    const history = state.campaignHistory || [];
+    if (history.length > 0) {
+      lastCampaign = history[0];
+      if (state.campaignFinished) {
+        showSummary(summarize(lastCampaign));
+        chrome.storage.local.remove('campaignFinished');
+      }
     }
   });
 
@@ -107,6 +219,9 @@ function restoreState() {
           campaignRunning = true;
           isPaused = response.isPaused || false;
           setUIState(response.isPaused ? 'paused' : 'running');
+          if (response.quotaExhausted) {
+            showQuotaBanner(response.pausedAccount, response.current, response.total);
+          }
         } else {
           setUIState('finished');
         }
@@ -286,21 +401,40 @@ function renderVariableTags() {
     const tag = document.createElement('span');
     tag.className = 'variable-tag';
     tag.textContent = variable;
+    // Sin esto, el mousedown sobre el tag le saca el foco al editor y el
+    // navegador descarta el caret: la variable terminaba insertándose al final
+    // del mensaje en vez de donde el usuario había hecho clic.
+    tag.addEventListener('mousedown', (e) => e.preventDefault());
     tag.addEventListener('click', () => insertVariable(variable));
     variableTags.appendChild(tag);
   });
 }
 
+/**
+ * La variable se inserta donde el usuario dejó el cursor. El `preventDefault`
+ * del mousedown de cada tag ya evita que el editor pierda el foco, así que en
+ * el caso normal la selección sigue viva; `lastEditorRange` es el respaldo
+ * para cuando el foco se fue por otro camino (abrir un modal, cambiar de
+ * pestaña), y solo si tampoco hay respaldo se cae al final del mensaje.
+ */
 function insertVariable(variable) {
-  const start = messageInput.selectionStart;
-  const end = messageInput.selectionEnd;
-  const text = messageInput.value;
-  const before = text.substring(0, start);
-  const after = text.substring(end);
-
-  messageInput.value = `${before}{${variable}}${after}`;
   messageInput.focus();
-  messageInput.selectionStart = messageInput.selectionEnd = start + variable.length + 2;
+
+  const selection = window.getSelection();
+  const caretIsInEditor = selection.rangeCount > 0 && messageInput.contains(selection.anchorNode);
+
+  if (!caretIsInEditor) {
+    const range = lastEditorRange ? lastEditorRange.cloneRange() : document.createRange();
+    if (!lastEditorRange) {
+      range.selectNodeContents(messageInput);
+      range.collapse(false);
+    }
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  // insertText conserva el formato del texto en el punto de inserción.
+  document.execCommand('insertText', false, `{${variable}}`);
   saveState();
 }
 
@@ -402,6 +536,7 @@ async function handleFileImport(event) {
     recipients = [...recipients, ...imported];
     availableVariables = DataProcessor.getAvailableVariables(recipients);
     updateUIWithContacts();
+    runEmailAudit();
   } catch (error) {
     alert(error);
   } finally {
@@ -416,6 +551,9 @@ function clearListHandler() {
   if (confirm('¿Estás seguro de que deseas limpiar la lista de destinatarios?')) {
     recipients = [];
     availableVariables = [];
+    omittedRecipients = [];
+    auditFindings = [];
+    renderAuditBanner();
     updateUIWithContacts();
   }
 }
@@ -536,8 +674,33 @@ async function handlePdfsChange(event) {
 }
 
 // ─── Campaign actions ─────────────────────────────────────────────────────────
+const MAX_TOTAL_ATTACHMENT_BYTES = 18 * 1024 * 1024;
+
 function updateSendButtonState() {
-  sendBtn.disabled = !(recipients.length > 0 && isLicenseAllowed && !campaignRunning);
+  sendBtn.disabled = !(recipients.length > 0 && isLicenseAllowed && !!gmailAccount && !campaignRunning);
+}
+
+/** Peso aproximado del adjunto a partir del data URL (base64 infla 4/3). */
+function estimateAttachmentBytes(list) {
+  return list.reduce((total, att) => {
+    const base64 = (att.dataUrl.split(',')[1] || '');
+    return total + Math.floor(base64.length * 0.75);
+  }, 0);
+}
+
+/**
+ * Abre el panel lateral de monitoreo. Se llama dentro del click de "Iniciar
+ * Campaña" porque Chrome solo permite abrirlo en respuesta a un gesto del
+ * usuario. Si el navegador es anterior a Chrome 114 no existe la API: la
+ * campaña sale igual, solo que sin panel.
+ */
+function openMonitorPanel() {
+  if (!chrome.sidePanel?.open || currentWindowId === null) {
+    console.info('[monitor] este Chrome no soporta el panel lateral; la campaña sigue normalmente.');
+    return;
+  }
+  chrome.sidePanel.open({ windowId: currentWindowId })
+    .catch((err) => console.warn('[monitor] no se pudo abrir el panel:', err?.message || err));
 }
 
 function startSend() {
@@ -549,13 +712,18 @@ function startSend() {
     alert('Necesitas una licencia activa para iniciar una campaña. Abre "Licencia" en el menú.');
     return;
   }
-  if (!apiKeyInput.value) {
-    alert('Configuración incompleta. Abre "Configuración" y pega la URL de Google Script.');
+  if (!gmailAccount) {
+    openModal(modalConfiguracion);
     return;
   }
-  // El Token de Seguridad es opcional: el backend estándar no lo valida (ver
-  // INSTRUCCIONES.md). Se sigue enviando si está cargado, por si el usuario
-  // configuró un SHARED_TOKEN propio en su copia del script.
+
+  // Gmail rechaza mensajes de más de 25 MB ya codificados; 18 MB de adjuntos
+  // crudos quedan en ~24 MB. Mejor avisar acá que fallar en cada destinatario.
+  const totalBytes = estimateAttachmentBytes([...attachments, ...pdfAttachments]);
+  if (totalBytes > MAX_TOTAL_ATTACHMENT_BYTES) {
+    alert(`Los adjuntos suman ${(totalBytes / 1048576).toFixed(1)} MB. Gmail no acepta más de 18 MB por correo — quita alguno.`);
+    return;
+  }
 
   currentFailedEmails = [];
   errorsContainer.style.display = 'none';
@@ -563,6 +731,7 @@ function startSend() {
   errorsList.innerHTML          = '';
   toggleErrorsBtn.textContent   = 'Ver Errores (0)';
   copyErrorsBtn.style.display   = 'none';
+  hideQuotaBanner();
 
   document.querySelectorAll('.contact-row-status').forEach((el) => {
     if (el.id?.startsWith('status-row-')) {
@@ -576,25 +745,30 @@ function startSend() {
     firstStatus.style.color = '#eab308';
   }
 
+  openMonitorPanel();
+
   setProgress(0, recipients.length, '🚀 Iniciando campaña...', []);
   setUIState('running');
   campaignRunning = true;
   isPaused = false;
 
   const payload = {
-    apiKey:       apiKeyInput.value,
-    apiToken:     apiTokenInput.value,
     fromEmail:    smtpFrom.value.replace(/[\r\n]/g, '').slice(0, 100),
     recipients,
     subject:      subjectInput.value,
-    message:      messageInput.value,
+    message:      messageToHtml(),
+    omitted:      omittedRecipients,
     attachments:  [...attachments, ...pdfAttachments],
     delaySeconds: parseInt(delaySeconds.value) || 10
   };
 
   chrome.runtime.sendMessage({ action: 'startSend', payload }, (response) => {
     if (chrome.runtime.lastError) console.warn(chrome.runtime.lastError.message);
-    if (response?.error) alert('Error: ' + response.error);
+    if (response?.error) {
+      alert('Error: ' + response.error);
+      campaignRunning = false;
+      setUIState('idle');
+    }
   });
 }
 
@@ -615,6 +789,7 @@ function resumeCampaign() {
 function cancelCampaign() {
   if (!confirm('¿Seguro que deseas cancelar la campaña? Los correos ya enviados no se pueden deshacer.')) return;
   chrome.runtime.sendMessage({ action: 'cancelSend' }, () => {});
+  hideQuotaBanner();
   setUIState('finished');
   statusText.textContent = '🛑 Campaña cancelada.';
 }
@@ -652,8 +827,118 @@ btnCerrarConfiguracion.addEventListener('click', () => closeModal(modalConfigura
 
 navSoporte.addEventListener('click', (e) => { e.preventDefault(); openModal(modalSoporte); });
 
+// chrome.tabs.create en vez de dejar que el popup navegue: al cerrarse el
+// popup, la pestaña nueva igual se abre en la ventana del navegador.
+linkWebSoporte.addEventListener('click', (e) => {
+  e.preventDefault();
+  chrome.tabs.create({ url: 'https://anomalydevs.qzz.io/' });
+});
+
 navLicencia.addEventListener('click', (e) => { e.preventDefault(); openModal(modalLicencia); });
 licenseBadge.addEventListener('click', () => openModal(modalLicencia));
+
+// ─── Cuenta de Gmail ─────────────────────────────────────────────────────────
+// Todo el OAuth vive en el service worker: este popup se cierra al perder el
+// foco, y la ventana de consentimiento de Google se lo roba.
+function renderGmailStatus() {
+  if (gmailAccount) {
+    gmailStatusEl.textContent = `🟢 ${gmailAccount}`;
+    btnConectarGmail.textContent = 'Cambiar de cuenta';
+    btnDesconectarGmail.style.display = '';
+  } else {
+    gmailStatusEl.textContent = '🔴 Ninguna cuenta conectada';
+    btnConectarGmail.textContent = 'Conectar cuenta de Gmail';
+    btnDesconectarGmail.style.display = 'none';
+  }
+  updateSendButtonState();
+}
+
+function refreshGmailStatus() {
+  chrome.runtime.sendMessage({ action: 'GMAIL_STATUS' }, (result) => {
+    if (chrome.runtime.lastError || !result) return;
+    gmailAccount = result.connected ? result.email : null;
+    renderGmailStatus();
+
+    // Con licencia activa pero sin cuenta, el siguiente paso obvio es conectar.
+    if (!gmailAccount && isLicenseAllowed && !hasPromptedForGmail) {
+      hasPromptedForGmail = true;
+      openModal(modalConfiguracion);
+    }
+  });
+}
+
+function connectGmail({ selectAccount }) {
+  btnConectarGmail.disabled = true;
+  btnConectarGmail.textContent = 'Conectando...';
+  chrome.runtime.sendMessage({ action: 'GMAIL_CONNECT', selectAccount }, (result) => {
+    btnConectarGmail.disabled = false;
+    if (chrome.runtime.lastError || !result) {
+      renderGmailStatus();
+      alert('No se pudo completar la conexión con Google.');
+      return;
+    }
+    gmailAccount = result.email || null;
+    renderGmailStatus();
+    if (!result.connected) {
+      alert(result.error || 'No se pudo conectar la cuenta.');
+    }
+  });
+}
+
+btnConectarGmail.addEventListener('click', () => connectGmail({ selectAccount: !!gmailAccount }));
+
+btnDesconectarGmail.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ action: 'GMAIL_DISCONNECT' }, () => {
+    gmailAccount = null;
+    renderGmailStatus();
+  });
+});
+
+// ─── Relevo de cuenta por cuota agotada ──────────────────────────────────────
+function showQuotaBanner(account, current, total, detail) {
+  // El motivo real puede no ser la cuota: un token revocado o el rate limit
+  // agotado tras los reintentos también pausan la campaña, y decir siempre
+  // "límite diario" mandaría al usuario a buscar el problema donde no está.
+  quotaBannerText.textContent =
+    `${detail || 'Límite diario alcanzado'} en ${account || 'la cuenta conectada'} — se enviaron ${current} de ${total}. ` +
+    `Conectá otra cuenta para continuar desde donde quedó.`;
+  quotaBanner.style.display = '';
+  setUIState('paused');
+  // Reanudar con la misma cuenta volvería a chocar contra el mismo error: la
+  // única salida útil es el botón del banner.
+  resumeBtn.style.display = 'none';
+}
+
+function hideQuotaBanner() {
+  quotaBanner.style.display = 'none';
+}
+
+btnRelevoCuenta.addEventListener('click', () => {
+  btnRelevoCuenta.disabled = true;
+  btnRelevoCuenta.textContent = 'Conectando...';
+  chrome.runtime.sendMessage({ action: 'GMAIL_CONNECT', selectAccount: true }, (result) => {
+    btnRelevoCuenta.disabled = false;
+    btnRelevoCuenta.textContent = 'Conectar otra cuenta y continuar';
+    if (chrome.runtime.lastError || !result?.connected) {
+      alert(result?.error || 'No se pudo conectar la cuenta de relevo.');
+      return;
+    }
+    gmailAccount = result.email || null;
+    renderGmailStatus();
+    chrome.runtime.sendMessage({ action: 'resumeSend' }, (resumed) => {
+      if (chrome.runtime.lastError || !resumed?.success) {
+        alert(resumed?.error || 'No se pudo reanudar la campaña.');
+        hideQuotaBanner();
+        setUIState('finished');
+        return;
+      }
+      hideQuotaBanner();
+      isPaused = false;
+      setUIState('running');
+      statusText.textContent = `▶️ Continuando desde ${gmailAccount}...`;
+    });
+  });
+});
 
 // ─── Licencia ────────────────────────────────────────────────────────────────
 const LICENSE_REASON_TEXT = {
@@ -725,24 +1010,6 @@ btnActivarLicencia.addEventListener('click', () => {
   });
 });
 
-// ─── Toggle password visibility ───────────────────────────────────────────────
-function attachToggle(btnId, inputEl) {
-  const btn = document.getElementById(btnId);
-  if (!btn) return;
-  btn.addEventListener('click', (e) => {
-    e.preventDefault();
-    if (inputEl.type === 'password') {
-      inputEl.type = 'text';
-      btn.textContent = '🙈';
-    } else {
-      inputEl.type = 'password';
-      btn.textContent = '👁️';
-    }
-  });
-}
-attachToggle('togglePass', apiKeyInput);
-attachToggle('toggleToken', apiTokenInput);
-
 // ─── Toggle error panel ───────────────────────────────────────────────────────
 toggleErrorsBtn.addEventListener('click', () => {
   const isVisible = errorsList.style.display !== 'none';
@@ -779,11 +1046,313 @@ resumeBtn.addEventListener('click', resumeCampaign);
 cancelBtn.addEventListener('click', cancelCampaign);
 resetBtn.addEventListener('click', resetCampaign);
 
-const syncInputs = [subjectInput, messageInput, delaySeconds, smtpFrom, apiKeyInput, apiTokenInput];
+// messageInput queda fuera a propósito: es un contenteditable, no dispara
+// 'change', y con 'keyup' además se guardaba dos veces por tecla —y cada
+// guardado reserializa la lista entera de destinatarios.
+const syncInputs = [subjectInput, delaySeconds, smtpFrom];
 syncInputs.forEach(el => {
   el.addEventListener('change', saveState);
   if (el.type !== 'checkbox') el.addEventListener('keyup', saveState);
 });
+
+// 'input' es el único evento que cubre todo lo que puede cambiar el editor:
+// tipeo, pegado, arrastre de texto y los botones de formato.
+messageInput.addEventListener('input', saveState);
+
+// Toolbar de formato. mousedown con preventDefault evita que el clic robe la
+// selección al editor, y execCommand aplica el formato al texto seleccionado.
+document.querySelectorAll('.fmt-btn').forEach((btn) => {
+  btn.addEventListener('mousedown', (e) => e.preventDefault());
+  btn.addEventListener('click', () => {
+    messageInput.focus();
+    document.execCommand(btn.dataset.cmd, false, btn.dataset.value || null);
+    saveState();
+  });
+});
+
+// ─── Revisión previa de direcciones ──────────────────────────────────────────
+// Detecta antes de enviar lo que la API de Gmail no avisa: un 200 al enviar
+// solo significa "lo acepté para entregar", y el rebote llega después como
+// correo del mailer-daemon a la bandeja, fuera del alcance de la extensión.
+
+/**
+ * Direcciones marcadas por la revisión, con el motivo. Se usan para excluirlas
+ * del envío y, sobre todo, para que queden en el reporte como omitidas.
+ */
+let auditFindings = [];
+
+function renderAuditBanner() {
+  if (auditFindings.length === 0) {
+    auditBanner.style.display = 'none';
+    return;
+  }
+
+  auditTitle.textContent = `⚠️ ${auditFindings.length} ${auditFindings.length === 1 ? 'dirección dudosa' : 'direcciones dudosas'}`;
+  auditStatus.textContent = 'no se han enviado todavía';
+  auditList.innerHTML = '';
+
+  auditFindings.forEach((finding) => {
+    const row = document.createElement('div');
+    const detalle = finding.suggestion
+      ? `¿quisiste decir ${finding.suggestion}?`
+      : PROBLEM_LABELS[finding.problem] || 'Dirección dudosa';
+    row.textContent = `${finding.email} → ${detalle}`;
+    row.style.color = finding.suggestion ? 'var(--text-main)' : '#fbbf24';
+    auditList.appendChild(row);
+  });
+
+  // Corregir solo tiene sentido si hay dominios mal escritos con sugerencia;
+  // un correo de relleno no se corrige, se excluye o se manda igual.
+  btnAuditCorregir.style.display = auditFindings.some((f) => f.suggestion) ? '' : 'none';
+  auditBanner.style.display = '';
+}
+
+async function runEmailAudit() {
+  if (recipients.length === 0) {
+    auditFindings = [];
+    renderAuditBanner();
+    return;
+  }
+
+  auditBanner.style.display = '';
+  auditTitle.textContent = 'Revisando las direcciones...';
+  auditStatus.textContent = '';
+  auditList.innerHTML = '';
+
+  // Todo lo dudoso se informa y lo decide el usuario: tanto los correos de
+  // relleno como los problemas de dominio. Nada sale del envío por su cuenta.
+  auditFindings = await auditEmails(recipients.map((r) => resolveEmail(r)));
+  renderAuditBanner();
+}
+
+/** Aplica las correcciones de dominio sobre la columna de correo del contacto. */
+function corregirDirecciones() {
+  const correcciones = new Map(
+    auditFindings.filter((f) => f.suggestion).map((f) => [f.email, applySuggestion(f.email, f.suggestion)])
+  );
+
+  recipients = recipients.map((recipient) => {
+    const key = resolveEmailKey(recipient);
+    if (!key) return recipient;
+    const corregido = correcciones.get(String(recipient[key] || '').trim());
+    return corregido ? { ...recipient, [key]: corregido } : recipient;
+  });
+
+  updateUIWithContacts();
+  runEmailAudit();
+}
+
+/**
+ * Saca del envío las direcciones marcadas, pero las conserva para mandarlas al
+ * registro de la campaña: el historial tiene que mostrar por qué no se les
+ * escribió, no simplemente omitirlas.
+ */
+function excluirDirecciones() {
+  const marcadas = new Map(auditFindings.map((f) => [
+    f.email,
+    f.suggestion ? `Dominio mal escrito (¿${f.suggestion}?)` : (PROBLEM_LABELS[f.problem] || 'Dirección dudosa')
+  ]));
+
+  // Se agregan a las que ya estaban excluidas —los correos de relleno salen
+  // solos al importar—: reasignar la lista las borraría y volverían al envío.
+  const nuevasExclusiones = recipients
+    .filter((r) => marcadas.has(resolveEmail(r)))
+    .map((r) => ({ email: resolveEmail(r), reason: marcadas.get(resolveEmail(r)), contactData: r }));
+
+  omittedRecipients = [...omittedRecipients, ...nuevasExclusiones];
+  recipients = recipients.filter((r) => !marcadas.has(resolveEmail(r)));
+
+  auditFindings = [];
+  renderAuditBanner();
+  availableVariables = DataProcessor.getAvailableVariables(recipients);
+  updateUIWithContacts();
+}
+
+/**
+ * Reporte para revisar la planilla completa: salen todos los clientes con
+ * todas sus columnas, y las direcciones con problema van en rojo, cada caso
+ * con su color y su diagnostico.
+ *
+ * Sale como tabla HTML con extension .xls y no como .xlsx nativo porque la
+ * build libre de SheetJS no escribe estilos de celda: un .xlsx real saldria
+ * sin un solo color, y aca el color es justamente el punto. Excel avisa que
+ * la extension no coincide con el formato; se acepta y se abre normal.
+ */
+function descargarReporteDudosos() {
+  const report = buildSuspectRows(recipients, auditFindings);
+  if (report.rows.length === 0) {
+    alert("No hay destinatarios cargados para reportar.");
+    return;
+  }
+  const blob = new Blob([toStyledHtmlTable(report)], { type: "application/vnd.ms-excel;charset=utf-8;" });
+  triggerDownload(blob, buildSuspectFileName());
+}
+
+btnAuditReporte.addEventListener("click", descargarReporteDudosos);
+btnAuditCorregir.addEventListener('click', corregirDirecciones);
+btnAuditExcluir.addEventListener('click', excluirDirecciones);
+btnAuditIgnorar.addEventListener('click', () => {
+  auditFindings = [];
+  renderAuditBanner();
+});
+
+// ─── Reporte e historial ─────────────────────────────────────────────────────
+
+/**
+ * Descarga un Blob. En una página de extensión alcanza con un <a download>
+ * sintético; el object URL se revoca enseguida para no retener memoria.
+ */
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function downloadCSV(campaign) {
+  const report = buildReportRows(campaign);
+  if (report.headers.length === 0) {
+    alert('Esa campaña no tiene resultados para exportar.');
+    return;
+  }
+  const blob = new Blob([toCSV(report)], { type: 'text/csv;charset=utf-8;' });
+  triggerDownload(blob, buildFileName(campaign, 'csv'));
+}
+
+/**
+ * .xlsx nativo con el SheetJS que ya viene incluido para importar. El
+ * aplicativo hermano de SMS genera una tabla HTML con extensión .xls y por eso
+ * Excel avisa que el formato no coincide con la extensión cada vez que se
+ * abre; acá el archivo es legítimo.
+ */
+function downloadXLSX(campaign) {
+  const report = buildReportRows(campaign);
+  if (report.headers.length === 0) {
+    alert('Esa campaña no tiene resultados para exportar.');
+    return;
+  }
+  const worksheet = XLSX.utils.aoa_to_sheet([report.headers, ...report.rows]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Reporte');
+  const output = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([output], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  triggerDownload(blob, buildFileName(campaign, 'xlsx'));
+}
+
+function showSummary(summary) {
+  resumenEnviados.textContent   = summary?.enviados ?? 0;
+  resumenErrores.textContent    = summary?.errores ?? 0;
+  resumenPendientes.textContent = summary?.pendientes ?? 0;
+
+  // Las omitidas solo se muestran si las hubo: en la mayoría de las campañas
+  // esta cifra es cero y ocupar lugar con un cero es ruido.
+  const omitidos = summary?.omitidos ?? 0;
+  resumenOmitidos.textContent = omitidos;
+  resumenOmitidosBloque.style.display = omitidos > 0 ? '' : 'none';
+
+  openModal(modalResumen);
+}
+
+function renderHistory(history) {
+  historialLista.innerHTML = '';
+
+  if (!history || history.length === 0) {
+    const empty = document.createElement('p');
+    empty.style.cssText = 'text-align: center; color: var(--text-muted); padding: 20px 0;';
+    empty.textContent = 'Todavía no hay campañas guardadas.';
+    historialLista.appendChild(empty);
+    btnBorrarHistorial.style.display = 'none';
+    return;
+  }
+
+  btnBorrarHistorial.style.display = '';
+
+  history.forEach((campaign) => {
+    const enviados = (campaign.results || []).filter((r) => r.status === 'enviado').length;
+    const errores  = (campaign.results || []).filter((r) => r.status === 'error').length;
+
+    const item = document.createElement('div');
+    item.style.cssText = 'padding: 12px; margin-bottom: 10px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: var(--radius-md);';
+
+    const header = document.createElement('div');
+    header.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 10px;';
+
+    const info = document.createElement('div');
+    const date = document.createElement('div');
+    date.style.cssText = 'font-weight: 600; color: var(--text-main);';
+    date.textContent = new Date(campaign.date).toLocaleString('es-EC');
+    const detail = document.createElement('div');
+    detail.style.cssText = 'font-size: 0.8rem; color: var(--text-muted); margin-top: 3px;';
+    detail.textContent = `${campaign.total} destinatarios · ✅ ${enviados} · ❌ ${errores} · ${campaign.status}`;
+    info.append(date, detail);
+
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display: flex; gap: 6px;';
+
+    const btnCsv = document.createElement('button');
+    btnCsv.className = 'btn btn-muted';
+    btnCsv.style.cssText = 'padding: 5px 10px; font-size: 0.75rem;';
+    btnCsv.textContent = '📄 CSV';
+    btnCsv.addEventListener('click', () => downloadCSV(campaign));
+
+    const btnXlsx = document.createElement('button');
+    btnXlsx.className = 'btn btn-muted';
+    btnXlsx.style.cssText = 'padding: 5px 10px; font-size: 0.75rem;';
+    btnXlsx.textContent = '📊 Excel';
+    btnXlsx.addEventListener('click', () => downloadXLSX(campaign));
+
+    actions.append(btnCsv, btnXlsx);
+    header.append(info, actions);
+    item.appendChild(header);
+    historialLista.appendChild(item);
+  });
+}
+
+function openHistory() {
+  chrome.runtime.sendMessage({ action: 'HISTORY_LIST' }, (response) => {
+    if (chrome.runtime.lastError) return;
+    renderHistory(response?.history || []);
+    openModal(modalHistorial);
+  });
+}
+
+navHistorial.addEventListener('click', (e) => { e.preventDefault(); openHistory(); });
+
+btnBorrarHistorial.addEventListener('click', () => {
+  if (!confirm('¿Borrar todo el historial de campañas? No se puede deshacer.')) return;
+  chrome.runtime.sendMessage({ action: 'HISTORY_CLEAR' }, () => {
+    if (chrome.runtime.lastError) return;
+    renderHistory([]);
+  });
+});
+
+/**
+ * Descarga el avance de la campaña que está pausada, sin cerrarla. Sirve para
+ * ver quién ya recibió el correo y desde qué destinatario retomar con la otra
+ * cuenta; los que faltan salen como Pendiente, en el mismo orden del Excel.
+ */
+function descargarAvance(formato) {
+  chrome.runtime.sendMessage({ action: 'CAMPAIGN_SNAPSHOT' }, (response) => {
+    if (chrome.runtime.lastError) return;
+    if (!response?.campaign) {
+      alert('No hay una campaña en curso de la que descargar el avance.');
+      return;
+    }
+    if (formato === 'csv') downloadCSV(response.campaign);
+    else downloadXLSX(response.campaign);
+  });
+}
+
+btnAvanceCSV.addEventListener('click', () => descargarAvance('csv'));
+btnAvanceXLSX.addEventListener('click', () => descargarAvance('xlsx'));
+
+btnCerrarResumen.addEventListener('click', () => closeModal(modalResumen));
+btnResumenCSV.addEventListener('click', () => { if (lastCampaign) downloadCSV(lastCampaign); });
+btnResumenXLSX.addEventListener('click', () => { if (lastCampaign) downloadXLSX(lastCampaign); });
 
 // ─── Background message listener ──────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message) => {
@@ -798,10 +1367,26 @@ chrome.runtime.onMessage.addListener((message) => {
     setProgress(message.current, message.total, message.status, message.failedEmails || []);
     setUIState('finished');
 
+    // Este popup solo sigue vivo si el panel lateral no llegó a abrirse (p. ej.
+    // en un Chrome anterior al 114). Cuando pasa, se muestra el resumen acá
+    // mismo y se baja la marca para que no vuelva a aparecer al reabrirlo.
+    if (message.campaign) {
+      lastCampaign = message.campaign;
+      showSummary(message.summary);
+      chrome.storage.local.remove('campaignFinished');
+    }
+
     const success = !message.isCancelled && (!message.failedEmails || message.failedEmails.length === 0);
     if (success && message.total > 0) {
       launchConfetti();
     }
+  }
+
+  if (message?.action === 'quotaExhausted') {
+    campaignRunning = true;
+    isPaused = true;
+    setProgress(message.current, message.total, message.status, message.failedEmails || []);
+    showQuotaBanner(message.account, message.current, message.total, message.detail);
   }
 });
 
@@ -809,4 +1394,5 @@ chrome.runtime.onMessage.addListener((message) => {
 setUIState('idle');
 restoreState();
 refreshLicenseStatus();
+refreshGmailStatus();
 setInterval(refreshLicenseStatus, 60000);

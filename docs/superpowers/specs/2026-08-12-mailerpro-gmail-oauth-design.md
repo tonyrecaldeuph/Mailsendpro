@@ -139,6 +139,8 @@ Antes del primer correo, `sendEmails` valida la licencia online (`validateLicens
 
 Los destinatarios ya enviados conservan su ✅ y no se reprocesan. No hay que re-importar el Excel.
 
+**Restricción de MV3 descubierta al implementar:** Chrome termina un service worker tras ~30 s sin llamadas a APIs de extensión, y un `setTimeout` encadenado no cuenta como actividad. Durante el envío eso no afecta (cada correo hace `fetch` y actualiza el badge), pero la espera de la pausa puede durar minutos mientras el usuario conecta la segunda cuenta, y ahí el bucle solo dormiría. Por eso el `while (isPaused)` llama a `chrome.runtime.getPlatformInfo()` en cada vuelta: reinicia el temporizador de inactividad. Como red de seguridad, `resumeSend` responde con error explícito si ya no hay campaña viva, en vez de dejar la UI en "enviando" para siempre.
+
 Los correos del segundo tramo salen con la dirección de la segunda casilla; el "Nombre remitente" configurado se mantiene igual en ambos tramos.
 
 ### 3.6 UI

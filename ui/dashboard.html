@@ -24,9 +24,12 @@
         <a href="#" class="nav-item" id="nav-licencia">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Licencia
         </a>
+        <a href="#" class="nav-item" id="nav-historial">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg> Historial
+        </a>
       </nav>
       <div class="header-actions">
-        <span style="font-size: 0.7rem; font-weight: 700; color: var(--color-accent); letter-spacing: 0.5px; padding: 2px 7px; border: 1px solid var(--color-accent); border-radius: 999px; line-height: 1;">v1.1</span>
+        <span style="font-size: 0.7rem; font-weight: 700; color: var(--color-accent); letter-spacing: 0.5px; padding: 2px 7px; border: 1px solid var(--color-accent); border-radius: 999px; line-height: 1;">v3.2</span>
       </div>
     </header>
 
@@ -54,6 +57,22 @@
           El archivo debe tener una columna <strong>CORREO CLIENTE</strong> (o "email") en la primera fila. Cualquier otra columna (ej. NOMBRE CLIENTE, MONTO POR COBRAR) queda disponible como variable del mensaje.
         </div>
 
+        <!-- Direcciones dudosas: correos de relleno y problemas de dominio. La
+             decisión de qué hacer con ellas es siempre del usuario. -->
+        <div id="audit-banner" style="display: none; margin-bottom: var(--spacing-sm); padding: 12px; background: rgba(245, 158, 11, 0.12); border: 1px solid #f59e0b; border-radius: var(--radius-sm);">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+            <strong id="audit-title" style="font-size: 0.9rem; color: var(--text-main);"></strong>
+            <span id="audit-status" style="font-size: 0.75rem; color: var(--text-muted);"></span>
+          </div>
+          <div id="audit-list" style="margin-top: 8px; max-height: 140px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; line-height: 1.7;"></div>
+          <div style="display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap;">
+            <button class="btn btn-accent" id="btn-audit-corregir" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">Corregir las mal escritas</button>
+            <button class="btn btn-muted" id="btn-audit-excluir" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">Excluirlas del envío</button>
+            <button class="btn btn-muted" id="btn-audit-ignorar" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">Enviar igual</button>
+          </div>
+          <button class="btn btn-muted btn-full" id="btn-audit-reporte" style="margin-top: 8px; padding: 6px 10px; font-size: 0.78rem;">🔴 Descargar reporte de dudosos</button>
+        </div>
+
         <div id="contacts-list" class="contacts-list">
           <div id="contacts-header" class="contact-row contact-row-header" style="display: none;"></div>
           <div style="text-align: center; color: var(--text-muted); padding: 20px;">
@@ -74,7 +93,21 @@
         <div class="message-editor">
           <input id="subject" type="text" placeholder="Asunto del correo — admite variables, ej: {NOMBRE CLIENTE}, ¡tenemos algo para ti!">
 
-          <textarea id="message" placeholder="Hola {NOMBRE CLIENTE},&#10;Tu monto por cobrar es {MONTO POR COBRAR}..." style="min-height: 100px;"></textarea>
+          <div id="message" contenteditable="true" data-placeholder="Hola {NOMBRE CLIENTE},
+Tu monto por cobrar es {MONTO POR COBRAR}..."></div>
+
+          <div class="msg-toolbar" id="msg-toolbar">
+            <button type="button" class="fmt-btn" data-cmd="bold" title="Negrita"><b>B</b></button>
+            <button type="button" class="fmt-btn" data-cmd="italic" title="Cursiva"><i>I</i></button>
+            <button type="button" class="fmt-btn" data-cmd="underline" title="Subrayado"><u>U</u></button>
+            <button type="button" class="fmt-btn" data-cmd="strikeThrough" title="Tachado"><s>S</s></button>
+            <span class="fmt-sep"></span>
+            <button type="button" class="fmt-btn" data-cmd="insertUnorderedList" title="Lista con viñetas">• Lista</button>
+            <button type="button" class="fmt-btn" data-cmd="insertOrderedList" title="Lista numerada">1. Lista</button>
+            <span class="fmt-sep"></span>
+            <button type="button" class="fmt-btn" data-cmd="formatBlock" data-value="h2" title="Título">Título</button>
+            <button type="button" class="fmt-btn" data-cmd="removeFormat" title="Quitar formato">Quitar formato</button>
+          </div>
 
           <div id="variables-container" class="variables-hint" style="display: none;">
             <span class="hint-label">Variables detectadas (clic para insertar):</span>
@@ -145,6 +178,18 @@
           </div>
         </div>
 
+        <div id="quota-banner" style="display: none; margin: 12px 0; padding: 12px; background: rgba(245, 158, 11, 0.12); border: 1px solid #f59e0b; border-radius: var(--radius-sm);">
+          <p id="quota-banner-text" style="font-size: 0.85rem; color: var(--text-main); line-height: 1.5; margin: 0 0 10px 0;"></p>
+          <button class="btn btn-accent btn-full" id="btn-relevo-cuenta">Conectar otra cuenta y continuar</button>
+          <p style="font-size: 0.75rem; color: var(--text-muted); margin: 10px 0 6px 0;">
+            Descarga el avance para ver quién ya recibió el correo y desde dónde retomar:
+          </p>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-muted" id="btn-avance-csv" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">📄 Avance en CSV</button>
+            <button class="btn btn-muted" id="btn-avance-xlsx" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">📊 Avance en Excel</button>
+          </div>
+        </div>
+
         <div id="errorsContainer" style="display: none; margin-top: var(--spacing-md);">
           <button id="toggleErrorsBtn" class="btn btn-muted" style="width: 100%; background: #2a1414; color: #f87171; border-color: #7f1d1d;">Ver Errores (0)</button>
           <div id="errorsList" class="errors-list" style="display: none; margin-top: var(--spacing-sm);"></div>
@@ -182,24 +227,22 @@
   <div id="modal-configuracion" class="modal-overlay" style="display: none;">
     <div class="modal-content">
       <div class="modal-header">
-        <h2>Configuración — Enlace Mágico</h2>
+        <h2>Configuración</h2>
         <button class="btn-close">×</button>
       </div>
       <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
-        <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">URL de tu Aplicación Web (Google Script)</label>
-        <div style="position: relative;">
-          <input id="apiKey" type="password" placeholder="https://script.google.com/macros/..." style="width: 100%; padding: 10px; padding-right: 40px; background: var(--bg-tertiary); color: white; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
-          <button id="togglePass" type="button" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: transparent; border: none; font-size: 1.1rem; cursor: pointer;">👁️</button>
-        </div>
-
-        <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Token de Seguridad (opcional — solo si tu Code.gs exige un SHARED_TOKEN propio)</label>
-        <div style="position: relative;">
-          <input id="apiToken" type="password" placeholder="Token configurado en el script" style="width: 100%; padding: 10px; padding-right: 40px; background: var(--bg-tertiary); color: white; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
-          <button id="toggleToken" type="button" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: transparent; border: none; font-size: 1.1rem; cursor: pointer;">👁️</button>
+        <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Cuenta de envío</label>
+        <div style="padding: 12px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: 10px;">
+          <div id="gmail-status" style="font-size: 0.9rem; color: var(--text-main);">🔴 Ninguna cuenta conectada</div>
+          <button class="btn btn-accent btn-full" id="btn-conectar-gmail">Conectar cuenta de Gmail</button>
+          <button class="btn btn-muted btn-full" id="btn-desconectar-gmail" style="display: none;">Desconectar</button>
         </div>
 
         <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Nombre visible del Remitente</label>
         <input id="smtpFrom" type="text" placeholder="Mi Empresa S.A." maxlength="100" style="padding: 10px; background: var(--bg-tertiary); color: white; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+        <p style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.5; margin: 0;">
+          Es solo el nombre que ve el destinatario. La dirección de correo siempre es la de la cuenta conectada — Gmail no permite enviar desde otra. Para enviar desde otra casilla, conectá esa casilla.
+        </p>
 
         <button class="btn btn-accent btn-full" id="btn-cerrar-configuracion">Listo</button>
       </div>
@@ -222,6 +265,9 @@
           <p style="font-weight: 600; font-size: 1.1rem; color: var(--text-main); margin-bottom: 5px;">Alexis Pillajo</p>
           <p style="color: var(--color-accent); font-size: 1rem; font-weight: 500;">📱 0980964513</p>
         </div>
+        <a href="https://anomalydevs.qzz.io/" id="link-web-soporte" target="_blank" rel="noopener" style="display: inline-block; margin-top: 20px; padding: 12px 24px; background: var(--color-accent); color: #0d1117; border-radius: var(--radius-sm); font-weight: 700; text-decoration: none; font-size: 0.95rem;">
+          🌐 Visitar nuestra página web
+        </a>
       </div>
     </div>
   </div>
@@ -237,6 +283,56 @@
         <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">Clave de licencia</label>
         <input type="text" id="input-license-key" placeholder="UPHONE-XXXX-XXXX-XXXX" style="padding: 10px; background: var(--bg-tertiary); color: white; border: 1px solid var(--border-color); border-radius: 5px; font-family: monospace; letter-spacing: 0.5px;">
         <button class="btn btn-accent btn-full" id="btn-activar-licencia">Activar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-resumen" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 480px;">
+      <div class="modal-header">
+        <h2 id="resumen-titulo">Resumen de Campaña</h2>
+        <button class="btn-close">×</button>
+      </div>
+      <div class="modal-body" style="text-align: center;">
+        <div style="font-size: 2.5rem; margin-bottom: 10px;">📊</div>
+        <div style="display: flex; justify-content: space-around; background: var(--bg-tertiary); padding: 15px; border-radius: var(--radius-md); margin-bottom: 20px;">
+          <div>
+            <div style="font-size: 1.6rem; font-weight: bold; color: var(--color-accent);" id="resumen-enviados">0</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">Enviados</div>
+          </div>
+          <div>
+            <div style="font-size: 1.6rem; font-weight: bold; color: #f87171;" id="resumen-errores">0</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">Errores</div>
+          </div>
+          <div>
+            <div style="font-size: 1.6rem; font-weight: bold; color: #fbbf24;" id="resumen-pendientes">0</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">Pendientes</div>
+          </div>
+          <div id="resumen-omitidos-bloque" style="display: none;">
+            <div style="font-size: 1.6rem; font-weight: bold; color: #94a3b8;" id="resumen-omitidos">0</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">Omitidas</div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+          <button class="btn btn-muted" id="btn-resumen-csv" style="flex: 1;">📄 Descargar CSV</button>
+          <button class="btn btn-muted" id="btn-resumen-xlsx" style="flex: 1;">📊 Descargar Excel</button>
+        </div>
+        <button class="btn btn-accent btn-full" id="btn-cerrar-resumen">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-historial" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 560px;">
+      <div class="modal-header">
+        <h2>Historial de Campañas</h2>
+        <button class="btn-close">×</button>
+      </div>
+      <div class="modal-body">
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 12px;">
+          <button class="btn btn-danger-outline" id="btn-borrar-historial" style="padding: 5px 10px; font-size: 0.8rem;">Borrar todo el historial</button>
+        </div>
+        <div id="historial-lista"></div>
       </div>
     </div>
   </div>
