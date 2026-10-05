@@ -38,7 +38,7 @@
 
 1. Haz clic en el ícono de la extensión.
 2. En el menú superior, abre "Licencia" (o el indicador del pie de página).
-3. Pega la clave que te entregó AnomalyDevs (formato `UPHONE-XXXX-XXXX-XXXX`).
+3. Pega la clave que te entregó AnomalyDevs (formato `ANOMALYDEVS-XXXX-XXXX-XXXX`).
 4. Haz clic en "Activar". El indicador pasa a 🟢 con el nombre de tu empresa.
 
 Sin licencia activa el botón "Iniciar Campaña" permanece deshabilitado. Si

@@ -1603,6 +1603,9 @@ chrome.runtime.onMessage.addListener((message) => {
 });
 
 // ─── Initialization ───────────────────────────────────────────────────────────
+// La versión sale del manifest: escrita a mano en el HTML quedaba atrasada en
+// cada release y el cliente no podía saber cuál tenía instalada.
+document.getElementById('version-badge').textContent = `v${chrome.runtime.getManifest().version}`;
 setUIState('idle');
 restoreState();
 refreshLicenseStatus();
