@@ -49,6 +49,9 @@ validación exitosa.
 
 ## PASO 3: Conectar tu Cuenta de Gmail
 
+Este paso requiere la licencia activa del paso 2: sin ella, la extensión no
+abre la autorización de Google.
+
 1. En el menú superior, abre "Configuración".
 2. Haz clic en "Conectar cuenta de Gmail".
 3. Elige la cuenta desde la que quieres enviar.
@@ -135,6 +138,23 @@ termina con las casillas suspendidas por Google.
 - REANUDAR: continúa desde donde se pausó.
 - CANCELAR: detiene definitivamente la campaña.
 - REINICIAR: limpia todo para una nueva campaña.
+
+---
+
+## Si se corta el envío (retomar campaña)
+
+Si Chrome se cierra, se reinicia la PC o se cae la conexión a mitad de una
+campaña, el avance no se pierde: cada correo queda registrado apenas sale.
+
+1. Al volver a abrir la extensión aparece un aviso azul de campaña
+   interrumpida, con cuántos correos ya salieron.
+2. Haz clic en "Retomar envío desde donde quedó" y vuelve a subir el mismo
+   Excel.
+3. Se envía solo a quienes faltan: los que ya recibieron el correo (o dieron
+   error) no se repiten.
+
+Desde el mismo aviso puedes descargar el avance en CSV o Excel, o descartar la
+campaña si no quieres continuarla.
 
 ---
 
