@@ -24,6 +24,13 @@ const quotaBanner = document.getElementById('quota-banner');
 const quotaText = document.getElementById('quota-text');
 const btnRelevo = document.getElementById('btn-relevo');
 const btnAvance = document.getElementById('btn-avance');
+const pauseBanner = document.getElementById('pause-banner');
+const pauseText = document.getElementById('pause-text');
+const btnPauseAvance = document.getElementById('btn-pause-avance');
+const resumableBanner = document.getElementById('resumable-banner');
+const resumableText = document.getElementById('resumable-text');
+const resumableDetail = document.getElementById('resumable-detail');
+const btnResumableAvance = document.getElementById('btn-resumable-avance');
 const logEl = document.getElementById('log');
 const emptyState = document.getElementById('empty-state');
 
@@ -140,16 +147,61 @@ function setControls(state) {
 function showQuotaBanner(account, detail) {
   quotaText.textContent = `La cuenta ${account || 'conectada'} alcanzó su límite diario. ${detail || ''}`.trim();
   quotaBanner.style.display = '';
+  if (pauseBanner) pauseBanner.style.display = 'none';
+  if (resumableBanner) resumableBanner.style.display = 'none';
 }
 
 function hideQuotaBanner() {
   quotaBanner.style.display = 'none';
 }
 
+function showPauseBanner() {
+  if (!pauseBanner) return;
+  pauseBanner.style.display = '';
+  if (quotaBanner) quotaBanner.style.display = 'none';
+}
+
+function hidePauseBanner() {
+  if (pauseBanner) pauseBanner.style.display = 'none';
+}
+
+function showResumableBanner(campaign, recipientsCount) {
+  if (!resumableBanner) return;
+  const total = campaign?.total || recipientsCount || 0;
+  const enviados = (campaign?.results || []).filter((r) => r.status === 'enviado').length;
+  const errores = (campaign?.results || []).filter((r) => r.status === 'error').length;
+  const pendientes = total ? Math.max(0, total - (enviados + errores)) : 0;
+  resumableText.textContent = '⏸️ Campaña interrumpida — retomala desde el dashboard';
+  if (resumableDetail) resumableDetail.textContent = `${total} destinatarios · ${enviados} enviados · ${errores} errores · ${pendientes} pendientes. Volvé a subir el Excel en el dashboard y usá "Retomar".`;
+  resumableBanner.style.display = '';
+}
+
+function hideResumableBanner() {
+  if (resumableBanner) resumableBanner.style.display = 'none';
+}
+
+function downloadSnapshot() {
+  chrome.runtime.sendMessage({ action: 'CAMPAIGN_SNAPSHOT' }, (response) => {
+    if (chrome.runtime.lastError || !response?.campaign) return;
+    const report = buildReportRows(response.campaign);
+    if (report.headers.length === 0) return;
+    const blob = new Blob([toCSV(report)], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = buildFileName(response.campaign, 'csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+}
+
 // ─── Controles ───────────────────────────────────────────────────────────────
 btnPausar.addEventListener('click', () => {
   chrome.runtime.sendMessage({ action: 'pauseSend' }).catch(() => { });
   setControls('paused');
+  showPauseBanner();
 });
 
 btnReanudar.addEventListener('click', () => {
@@ -161,6 +213,8 @@ btnReanudar.addEventListener('click', () => {
       return;
     }
     hideQuotaBanner();
+    hidePauseBanner();
+    hideResumableBanner();
     setControls('running');
   });
 });
@@ -168,30 +222,17 @@ btnReanudar.addEventListener('click', () => {
 btnCancelar.addEventListener('click', () => {
   chrome.runtime.sendMessage({ action: 'cancelSend' }).catch(() => { });
   setControls('idle');
+  hidePauseBanner();
+  hideQuotaBanner();
 });
 
 /**
  * Baja el avance de la campaña pausada sin cerrarla: quién ya recibió el
  * correo, quién falló y desde qué destinatario hay que retomar.
  */
-btnAvance.addEventListener('click', () => {
-  chrome.runtime.sendMessage({ action: 'CAMPAIGN_SNAPSHOT' }, (response) => {
-    if (chrome.runtime.lastError || !response?.campaign) return;
-
-    const report = buildReportRows(response.campaign);
-    if (report.headers.length === 0) return;
-
-    const blob = new Blob([toCSV(report)], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = buildFileName(response.campaign, 'csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  });
-});
+btnAvance.addEventListener('click', downloadSnapshot);
+if (btnPauseAvance) btnPauseAvance.addEventListener('click', downloadSnapshot);
+if (btnResumableAvance) btnResumableAvance.addEventListener('click', downloadSnapshot);
 
 btnRelevo.addEventListener('click', () => {
   chrome.runtime.sendMessage({ action: 'GMAIL_CONNECT', selectAccount: true }, (response) => {
@@ -229,6 +270,14 @@ chrome.runtime.onMessage.addListener((message) => {
     }
 
     setControls(message.isPaused ? 'paused' : 'running');
+    if (message.isPaused) {
+      if (!quotaBanner || quotaBanner.style.display === 'none') {
+        showPauseBanner();
+      }
+    } else {
+      hidePauseBanner();
+    }
+    hideResumableBanner();
   }
 
   if (message?.action === 'sendComplete') {
@@ -236,6 +285,9 @@ chrome.runtime.onMessage.addListener((message) => {
     setSummary(message.summary);
     currentEmailEl.textContent = message.isCancelled ? 'Campaña cancelada' : 'Campaña completada';
     setControls('idle');
+    hideQuotaBanner();
+    hidePauseBanner();
+    hideResumableBanner();
   }
 
   if (message?.action === 'quotaExhausted') {
@@ -246,7 +298,7 @@ chrome.runtime.onMessage.addListener((message) => {
 });
 
 // ─── Puesta al día al abrir ──────────────────────────────────────────────────
-// El panel puede abrirse con la campaña ya empezada.
+// El panel puede abrirse con la campaña ya empezada o interrumpida.
 chrome.runtime.sendMessage({ action: 'getState' }, (response) => {
   if (chrome.runtime.lastError || !response) return;
 
@@ -255,11 +307,19 @@ chrome.runtime.sendMessage({ action: 'getState' }, (response) => {
   renderLog(response.log);
   paintedResults = response.resultCount || 0;
 
+  if (response.hasResumable && !response.sendInProgress) {
+    showResumableBanner(response.resumable, response.resumableRecipientsCount || 0);
+    setControls('idle');
+    currentEmailEl.textContent = 'Campaña interrumpida — retomar en dashboard';
+    return;
+  }
+
   if (response.sendInProgress) {
     setControls(response.isPaused ? 'paused' : 'running');
     const last = response.log && response.log[0];
     if (last) currentEmailEl.textContent = last.email;
     if (response.quotaExhausted) showQuotaBanner(response.pausedAccount, '');
+    else if (response.isPaused) showPauseBanner();
   } else {
     setControls('idle');
     if (response.total > 0) currentEmailEl.textContent = 'Campaña finalizada';

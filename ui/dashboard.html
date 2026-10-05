@@ -166,6 +166,24 @@ Tu monto por cobrar es {MONTO POR COBRAR}..."></div>
         </div>
       </section>
 
+      <!-- Campaña interrumpida reanudable -->
+      <section id="resumable-banner" style="display: none; padding: 16px; background: rgba(59, 130, 246, 0.12); border: 1px solid #3b82f6; border-radius: var(--radius-sm);">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <div>
+            <strong style="font-size: 0.95rem; color: var(--text-main);">⏸️ Campaña interrumpida detectada</strong>
+            <p id="resumable-banner-text" style="font-size: 0.82rem; color: var(--text-muted); margin: 4px 0 0 0; line-height: 1.5;"></p>
+          </div>
+          <span id="resumable-banner-status" style="font-size: 0.75rem; font-weight: 700; color: #3b82f6; border: 1px solid #3b82f6; padding: 2px 8px; border-radius: 999px;">Reanudable</span>
+        </div>
+        <p style="font-size: 0.75rem; color: var(--text-muted); margin: 10px 0 6px 0;">Volvé a subir el mismo Excel y retomá desde donde quedó — no se reenviará a quienes ya lo recibieron.</p>
+        <button class="btn btn-accent btn-full" id="btn-resumable-resume" style="margin-bottom: 8px;">▶️ Retomar envío desde donde quedó</button>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button class="btn btn-muted" id="btn-resumable-csv" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">📄 Descargar avance CSV</button>
+          <button class="btn btn-muted" id="btn-resumable-xlsx" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">📊 Descargar avance Excel</button>
+          <button class="btn btn-muted" id="btn-resumable-discard" style="flex: 1; padding: 6px 10px; font-size: 0.78rem; border-color: #ef4444; color: #ef4444;">🗑️ Descartar</button>
+        </div>
+      </section>
+
       <!-- Progreso -->
       <section class="section section-progress" id="progress-section" style="display: none;">
         <div class="progress-wrap">
@@ -187,6 +205,15 @@ Tu monto por cobrar es {MONTO POR COBRAR}..."></div>
           <div style="display: flex; gap: 8px;">
             <button class="btn btn-muted" id="btn-avance-csv" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">📄 Avance en CSV</button>
             <button class="btn btn-muted" id="btn-avance-xlsx" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">📊 Avance en Excel</button>
+          </div>
+        </div>
+
+        <div id="pause-banner" style="display: none; margin: 12px 0; padding: 12px; background: rgba(100, 116, 139, 0.12); border: 1px solid #64748b; border-radius: var(--radius-sm);">
+          <p id="pause-banner-text" style="font-size: 0.85rem; color: var(--text-main); line-height: 1.5; margin: 0 0 10px 0;">⏸️ Campaña pausada.</p>
+          <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0 0 6px 0;">Podés descargar el reporte de lo enviado hasta ahora:</p>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-muted" id="btn-pause-csv" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">📄 Descargar CSV</button>
+            <button class="btn btn-muted" id="btn-pause-xlsx" style="flex: 1; padding: 6px 10px; font-size: 0.78rem;">📊 Descargar Excel</button>
           </div>
         </div>
 

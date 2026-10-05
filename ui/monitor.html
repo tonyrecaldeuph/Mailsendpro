@@ -152,6 +152,17 @@
     <button class="btn" id="btn-avance">📄 Descargar el avance</button>
   </div>
 
+  <div class="quota-banner" id="pause-banner" style="display: none; background: rgba(100, 116, 139, 0.12); border-color: #64748b;">
+    <span id="pause-text">⏸️ Campaña pausada.</span>
+    <button class="btn" id="btn-pause-avance">📄 Descargar reporte</button>
+  </div>
+
+  <div class="quota-banner" id="resumable-banner" style="display: none; background: rgba(59, 130, 246, 0.12); border-color: #3b82f6;">
+    <span id="resumable-text">⏸️ Campaña interrumpida — podés retomarla desde el dashboard.</span>
+    <span id="resumable-detail" style="display:block; font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;"></span>
+    <button class="btn" id="btn-resumable-avance">📄 Descargar avance</button>
+  </div>
+
   <div class="controls" id="controls">
     <button class="btn btn-pause" id="btn-pausar">⏸ Pausar</button>
     <button class="btn btn-resume" id="btn-reanudar" style="display: none;">▶ Reanudar</button>
