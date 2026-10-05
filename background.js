@@ -1,4 +1,4 @@
-import { computeGateDecision } from './ui/licenseGate.js';
+import { computeGateDecision, computeGmailConnectGate } from './ui/licenseGate.js';
 import { activateLicense, validateLicense, getCachedLicenseState } from './ui/licenseClient.js';
 import { buildMimeMessage } from './ui/mimeBuilder.js';
 import { classifyGmailError } from './ui/gmailErrors.js';
@@ -800,6 +800,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.action === 'GMAIL_CONNECT') {
     (async () => {
       try {
+        const gate = computeGmailConnectGate(await validateLicense(), Date.now());
+        if (!gate.allowed) {
+          sendResponse({ connected: false, error: gate.message });
+          return;
+        }
         const result = await connect({ selectAccount: message.selectAccount === true });
         sendResponse({ connected: true, email: result.email });
       } catch (err) {
