@@ -60,6 +60,20 @@ const btnRelevoCuenta   = document.getElementById('btn-relevo-cuenta');
 const btnAvanceCSV      = document.getElementById('btn-avance-csv');
 const btnAvanceXLSX     = document.getElementById('btn-avance-xlsx');
 
+// Pausa genérica: descarga del avance sin cuota
+const pauseBanner       = document.getElementById('pause-banner');
+const pauseBannerText   = document.getElementById('pause-banner-text');
+const btnPauseCSV       = document.getElementById('btn-pause-csv');
+const btnPauseXLSX      = document.getElementById('btn-pause-xlsx');
+
+// Campaña interrumpida reanudable (caída externa, pérdida de conexión)
+const resumableBanner       = document.getElementById('resumable-banner');
+const resumableBannerText   = document.getElementById('resumable-banner-text');
+const btnResumableResume    = document.getElementById('btn-resumable-resume');
+const btnResumableCSV       = document.getElementById('btn-resumable-csv');
+const btnResumableXLSX      = document.getElementById('btn-resumable-xlsx');
+const btnResumableDiscard   = document.getElementById('btn-resumable-discard');
+
 // Soporte
 const navSoporte        = document.getElementById('nav-soporte');
 const modalSoporte       = document.getElementById('modal-soporte');
@@ -213,6 +227,18 @@ function restoreState() {
   chrome.runtime.sendMessage({ action: 'getState' }, (response) => {
     if (chrome.runtime.lastError) return;
     if (response) {
+      // Campaña interrumpida reanudable (worker reiniciado, sin bucle vivo).
+      // Tiene prioridad sobre el estado idle/finished: el usuario debe ver
+      // "Retomar" antes de poder iniciar una campaña nueva.
+      if (response.hasResumable && !response.sendInProgress) {
+        const c = response.resumable;
+        if (c) showResumableBanner(c, response.resumableRecipientsCount || 0);
+        if (response.current > 0 || response.total > 0) {
+          setProgress(response.current || 0, response.total || c?.total || 0, response.status || '⏸️ Campaña interrumpida', response.failedEmails || []);
+          progressSection.style.display = '';
+        }
+        return;
+      }
       if (response.sendInProgress || response.current > 0) {
         setProgress(response.current, response.total, response.status, response.failedEmails || []);
         if (response.sendInProgress) {
@@ -220,14 +246,22 @@ function restoreState() {
           isPaused = response.isPaused || false;
           setUIState(response.isPaused ? 'paused' : 'running');
           if (response.quotaExhausted) {
-            showQuotaBanner(response.pausedAccount, response.current, response.total);
+            showQuotaBanner(response.pausedAccount, response.current, response.total, response.detail);
+          } else if (response.isPaused) {
+            showPauseBanner();
           }
         } else {
           setUIState('finished');
         }
+      } else if (response.hasResumable) {
+        // fallback por si current==0 pero hay resumable
+        const c = response.resumable;
+        if (c) showResumableBanner(c, response.resumableRecipientsCount || 0);
       }
     }
   });
+  // Segundo chequeo explícito para banner resumable (por si getState no trajo hasResumable por timing).
+  refreshResumableBanner();
 }
 
 // ─── UI State Machine ─────────────────────────────────────────────────────────
@@ -241,6 +275,9 @@ function setUIState(state) {
       cancelBtn.style.display = 'none';
       resetBtn.style.display = 'none';
       updateSendButtonState();
+      if (!quotaBanner || quotaBanner.style.display !== '') {
+        hidePauseBanner();
+      }
       break;
 
     case 'running':
@@ -250,6 +287,8 @@ function setUIState(state) {
       cancelBtn.style.display = '';
       resetBtn.style.display = 'none';
       progressSection.style.display = '';
+      hidePauseBanner();
+      hideQuotaBanner();
       break;
 
     case 'paused':
@@ -259,6 +298,11 @@ function setUIState(state) {
       cancelBtn.style.display = '';
       resetBtn.style.display = 'none';
       progressSection.style.display = '';
+      // La descarga del reporte ya existía para cuota; ahora también en pausa
+      // genérica (requisito: al suspenderse, poder descargar reporte).
+      if (!quotaBanner || quotaBanner.style.display === 'none') {
+        showPauseBanner();
+      }
       break;
 
     case 'finished':
@@ -270,8 +314,19 @@ function setUIState(state) {
       progressSection.style.display = '';
       campaignRunning = false;
       isPaused = false;
+      hidePauseBanner();
       break;
   }
+}
+
+function showPauseBanner() {
+  if (!pauseBanner) return;
+  pauseBanner.style.display = '';
+  if (pauseBannerText) pauseBannerText.textContent = '⏸️ Campaña pausada. Podés reanudar cuando quieras o descargar el reporte de lo enviado hasta ahora.';
+}
+
+function hidePauseBanner() {
+  if (pauseBanner) pauseBanner.style.display = 'none';
 }
 
 // ─── Progress ─────────────────────────────────────────────────────────────────
@@ -677,6 +732,13 @@ async function handlePdfsChange(event) {
 const MAX_TOTAL_ATTACHMENT_BYTES = 18 * 1024 * 1024;
 
 function updateSendButtonState() {
+  // Si hay una campaña interrumpida reanudable, no permitir iniciar una nueva
+  // que pisaría el progreso: obligar a retomar o descartar primero.
+  const hasResumableVisible = resumableBanner && resumableBanner.style.display !== 'none';
+  if (hasResumableVisible) {
+    sendBtn.disabled = true;
+    return;
+  }
   sendBtn.disabled = !(recipients.length > 0 && isLicenseAllowed && !!gmailAccount && !campaignRunning);
 }
 
@@ -732,6 +794,8 @@ function startSend() {
   toggleErrorsBtn.textContent   = 'Ver Errores (0)';
   copyErrorsBtn.style.display   = 'none';
   hideQuotaBanner();
+  hidePauseBanner();
+  hideResumableBanner();
 
   document.querySelectorAll('.contact-row-status').forEach((el) => {
     if (el.id?.startsWith('status-row-')) {
@@ -780,7 +844,16 @@ function pauseCampaign() {
 }
 
 function resumeCampaign() {
-  chrome.runtime.sendMessage({ action: 'resumeSend' }, () => {});
+  chrome.runtime.sendMessage({ action: 'resumeSend' }, (response) => {
+    if (chrome.runtime.lastError) return;
+    if (response && response.error) {
+      // Caso típico: el worker murió y ya no hay bucle vivo; ofrecer retomar por storage si existe.
+      alert(response.error);
+      refreshResumableBanner();
+      return;
+    }
+    hidePauseBanner();
+  });
   isPaused = false;
   setUIState('running');
   statusText.textContent = '▶️ Reanudando envío...';
@@ -790,6 +863,7 @@ function cancelCampaign() {
   if (!confirm('¿Seguro que deseas cancelar la campaña? Los correos ya enviados no se pueden deshacer.')) return;
   chrome.runtime.sendMessage({ action: 'cancelSend' }, () => {});
   hideQuotaBanner();
+  hidePauseBanner();
   setUIState('finished');
   statusText.textContent = '🛑 Campaña cancelada.';
 }
@@ -805,6 +879,8 @@ function resetCampaign() {
   errorsList.style.display = 'none';
   errorsList.innerHTML = '';
   progressSection.style.display = 'none';
+  hidePauseBanner();
+  hideQuotaBanner();
   setUIState('idle');
   renderContactList();
 }
@@ -903,6 +979,7 @@ function showQuotaBanner(account, current, total, detail) {
     `${detail || 'Límite diario alcanzado'} en ${account || 'la cuenta conectada'} — se enviaron ${current} de ${total}. ` +
     `Conectá otra cuenta para continuar desde donde quedó.`;
   quotaBanner.style.display = '';
+  hidePauseBanner();
   setUIState('paused');
   // Reanudar con la misma cuenta volvería a chocar contra el mismo error: la
   // única salida útil es el botón del banner.
@@ -911,6 +988,120 @@ function showQuotaBanner(account, current, total, detail) {
 
 function hideQuotaBanner() {
   quotaBanner.style.display = 'none';
+}
+
+// ─── Pausa genérica ──────────────────────────────────────────────────────────
+// Ya cubierta por showPauseBanner/hidePauseBanner arriba.
+
+// ─── Campaña interrumpida reanudable ────────────────────────────────────────
+function showResumableBanner(campaign, recipientsCount) {
+  if (!resumableBanner) return;
+  const summary = campaign ? summarize(campaign) : null;
+  const total = campaign?.total || recipientsCount || 0;
+  const enviados = summary?.enviados ?? 0;
+  const errores = summary?.errores ?? 0;
+  const pendientes = total ? Math.max(0, total - (enviados + errores + (summary?.omitidos ?? 0))) : 0;
+  const account = campaign?.account || gmailAccount || 'la cuenta anterior';
+  resumableBannerText.textContent =
+    `Se detectó una campaña de ${total} destinatarios (${enviados} enviados, ${errores} errores, ${pendientes} pendientes) con la cuenta ${account}. ` +
+    `Volvé a subir el Excel y usá "Retomar" para continuar sin reenviar.`;
+  resumableBanner.style.display = '';
+  // Mientras haya una campaña reanudable, el botón de envío normal no debe
+  // iniciar una campaña nueva que pise el progreso.
+  sendBtn.disabled = true;
+  sendBtn.title = 'Hay una campaña interrumpida pendiente: retomala o descartala primero.';
+}
+
+function hideResumableBanner() {
+  if (resumableBanner) resumableBanner.style.display = 'none';
+  sendBtn.title = '';
+  updateSendButtonState();
+}
+
+function refreshResumableBanner() {
+  chrome.runtime.sendMessage({ action: 'GET_RESUMABLE' }, (response) => {
+    if (chrome.runtime.lastError) return;
+    if (response?.resumable) {
+      showResumableBanner(response.resumable, response.recipients?.length || 0);
+      // Mostrar avance aunque no haya progreso vivo: la barra refleja lo ya enviado.
+      const summary = response.summary;
+      const total = response.resumable.total || 0;
+      const current = (summary?.enviados ?? 0) + (summary?.errores ?? 0);
+      setProgress(current, total, `⏸️ Campaña interrumpida — ${current} de ${total}`, []);
+      progressSection.style.display = '';
+    } else {
+      hideResumableBanner();
+    }
+  });
+}
+
+async function handleResumableResume() {
+  if (recipients.length === 0) {
+    alert('Primero volvé a subir el Excel de la campaña interrumpida. Con ese archivo se detecta quién falta y se retoma sin duplicar.');
+    return;
+  }
+  if (!gmailAccount) {
+    alert('Conectá una cuenta de Gmail antes de retomar.');
+    openModal(modalConfiguracion);
+    return;
+  }
+  btnResumableResume.disabled = true;
+  btnResumableResume.textContent = '⏳ Retomando...';
+
+  const payload = {
+    fromEmail: smtpFrom.value.replace(/[\r\n]/g, '').slice(0, 100),
+    recipients,
+    subject: subjectInput.value,
+    message: messageToHtml(),
+    omitted: omittedRecipients,
+    attachments: [...attachments, ...pdfAttachments],
+    delaySeconds: parseInt(delaySeconds.value) || 10
+  };
+
+  chrome.runtime.sendMessage({ action: 'RESUME_INTERRUPTED', payload }, (response) => {
+    btnResumableResume.disabled = false;
+    btnResumableResume.textContent = '▶️ Retomar envío desde donde quedó';
+    if (chrome.runtime.lastError) {
+      alert('No se pudo retomar: ' + chrome.runtime.lastError.message);
+      return;
+    }
+    if (response?.error) {
+      alert(response.error);
+      // Si ya no hay nada para retomar, ofrecer descartar.
+      if (response.error.includes('Nada para retomar') || response.error.includes('No hay una campaña')) {
+        refreshResumableBanner();
+      }
+      return;
+    }
+    hideResumableBanner();
+    hideQuotaBanner();
+    hidePauseBanner();
+    // El progreso lo seguirá emitiendo background via sendProgress/sendComplete.
+    campaignRunning = true;
+    isPaused = false;
+    setUIState('running');
+    statusText.textContent = '▶️ Retomando campaña...';
+    openMonitorPanel();
+  });
+}
+
+function handleResumableDiscard() {
+  if (!confirm('¿Descartar la campaña interrumpida? Se archivará como Interrumpida y podrás ver el reporte en el Historial.')) return;
+  chrome.runtime.sendMessage({ action: 'DISCARD_RESUMABLE' }, (response) => {
+    if (chrome.runtime.lastError) {
+      alert('No se pudo descartar: ' + chrome.runtime.lastError.message);
+      return;
+    }
+    hideResumableBanner();
+    progressSection.style.display = 'none';
+    setUIState('idle');
+  });
+}
+
+function descargarAvanceResumable(formato) {
+  // Reusa CAMPAIGN_SNAPSHOT: funciona tanto para campaña pausada en memoria
+  // como para la reanudable que solo vive en storage tras un reinicio.
+  descargarAvance(formato);
 }
 
 btnRelevoCuenta.addEventListener('click', () => {
@@ -1350,6 +1541,14 @@ function descargarAvance(formato) {
 btnAvanceCSV.addEventListener('click', () => descargarAvance('csv'));
 btnAvanceXLSX.addEventListener('click', () => descargarAvance('xlsx'));
 
+if (btnPauseCSV) btnPauseCSV.addEventListener('click', () => descargarAvance('csv'));
+if (btnPauseXLSX) btnPauseXLSX.addEventListener('click', () => descargarAvance('xlsx'));
+
+if (btnResumableResume) btnResumableResume.addEventListener('click', handleResumableResume);
+if (btnResumableCSV) btnResumableCSV.addEventListener('click', () => descargarAvanceResumable('csv'));
+if (btnResumableXLSX) btnResumableXLSX.addEventListener('click', () => descargarAvanceResumable('xlsx'));
+if (btnResumableDiscard) btnResumableDiscard.addEventListener('click', handleResumableDiscard);
+
 btnCerrarResumen.addEventListener('click', () => closeModal(modalResumen));
 btnResumenCSV.addEventListener('click', () => { if (lastCampaign) downloadCSV(lastCampaign); });
 btnResumenXLSX.addEventListener('click', () => { if (lastCampaign) downloadXLSX(lastCampaign); });
@@ -1360,12 +1559,24 @@ chrome.runtime.onMessage.addListener((message) => {
     setProgress(message.current, message.total, message.status, message.failedEmails || [], message.rowIndex, message.rowSuccess);
     if (message.isPaused) {
       setUIState('paused');
+      // Si es pausa por cuota, el banner de cuota ya se muestra via quotaExhausted;
+      // si es pausa manual, mostrar el banner genérico con descarga.
+      if (!message.quotaExhausted) {
+        // quotaExhausted no viene en sendProgress, se infiere por ausencia de showQuotaBanner reciente
+      }
+    } else {
+      hidePauseBanner();
     }
+    // En cuanto hay progreso vivo, la campaña ya no es "resumable interrumpida".
+    hideResumableBanner();
   }
 
   if (message?.action === 'sendComplete') {
     setProgress(message.current, message.total, message.status, message.failedEmails || []);
     setUIState('finished');
+    hideResumableBanner();
+    hidePauseBanner();
+    hideQuotaBanner();
 
     // Este popup solo sigue vivo si el panel lateral no llegó a abrirse (p. ej.
     // en un Chrome anterior al 114). Cuando pasa, se muestra el resumen acá
@@ -1387,6 +1598,7 @@ chrome.runtime.onMessage.addListener((message) => {
     isPaused = true;
     setProgress(message.current, message.total, message.status, message.failedEmails || []);
     showQuotaBanner(message.account, message.current, message.total, message.detail);
+    hideResumableBanner();
   }
 });
 

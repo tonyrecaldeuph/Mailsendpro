@@ -1,4 +1,4 @@
-import { computeGateDecision } from './ui/licenseGate.js';
+import { computeGateDecision, computeGmailConnectGate } from './ui/licenseGate.js';
 import { activateLicense, validateLicense, getCachedLicenseState } from './ui/licenseClient.js';
 import { buildMimeMessage } from './ui/mimeBuilder.js';
 import { classifyGmailError } from './ui/gmailErrors.js';
@@ -6,6 +6,7 @@ import { getAccessToken, invalidateToken, connect, disconnect, detectActiveAccou
 import { resolveEmail } from './ui/recipientFields.js';
 import { createCampaign, appendResult, summarize, tailLog, finalizeCampaign, RESULT_STATUS, CAMPAIGN_STATUS } from './ui/campaignLog.js';
 import { saveCurrent, loadCurrent, archive, listHistory, clearHistory, saveRecipients, loadRecipients } from './ui/historyStore.js';
+import { filterRemainingRecipients } from './ui/campaignResume.js';
 
 const LICENSE_VALIDATION_ALARM = 'licenseValidationAlarm';
 const LICENSE_VALIDATION_PERIOD_MIN = 360; // 6h
@@ -69,9 +70,11 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 /**
  * Si el worker murió a mitad de campaña, quedó una campaña "En curso" en
- * storage que nadie cerró. Se archiva como Interrumpida —es el único camino
- * por el que aparece ese estado— para que el usuario igual pueda descargar el
- * reporte de lo que sí se envió.
+ * storage que nadie cerró. En vez de archivarla al instante como
+ * Interrumpida, se deja como reanudable: el usuario puede volver a subir el
+ * Excel y retomar desde donde quedó (deduplicando por correo), o descargar
+ * el reporte de lo que sí se envió. Solo se archiva cuando el usuario
+ * descarta explícitamente la campaña.
  */
 async function recoverInterruptedCampaign() {
   // Si este worker ya está enviando, la campaña de storage es la suya y no hay
@@ -81,32 +84,22 @@ async function recoverInterruptedCampaign() {
   const pending = await loadCurrent();
   if (!pending) return;
 
-  // Los destinatarios se guardaron aparte justo por esto: sin ellos, el
-  // reporte de una campaña interrumpida solo mostraría a los que sí se
-  // intentaron, que es exactamente el caso en que el usuario más necesita
-  // saber quiénes quedaron afuera.
-  const allRecipients = await loadRecipients();
-
-  // Se cuentan solo los intentos reales: las direcciones omitidas también son
-  // resultados, pero no salen de esta lista, así que incluirlas correría el
-  // corte y dejaría fuera del reporte a destinatarios que sí faltaban.
-  const attempted = pending.results.filter(
-    (r) => r.status === RESULT_STATUS.SENT || r.status === RESULT_STATUS.ERROR
-  ).length;
-
-  const remaining = allRecipients.slice(attempted).map((item) => ({
-    email: resolveEmail(item),
-    contactData: item
-  }));
-
-  const closed = finalizeCampaign(pending, {
-    status: CAMPAIGN_STATUS.INTERRUPTED,
-    finishedAt: Date.now(),
-    remaining,
-    reason: 'El envío se interrumpió antes de llegar a este destinatario'
-  });
-  await archive(closed);
-  console.warn('[campaña] se archivó una campaña interrumpida:', closed.results.length, 'resultados');
+  // Se mantiene en memoria para que CAMPAIGN_SNAPSHOT y getState puedan
+  // responder sin volver a leer storage en cada mensaje, y para que el
+  // dashboard/monitor puedan ofrecer "Retomar" y "Descargar reporte".
+  // No se toca storage: queda como campaña reanudable hasta que el usuario
+  // la retome o la descarte.
+  currentCampaign = pending;
+  const storedRecipients = await loadRecipients();
+  // Reconstruye el progreso para que la barra no muestre 0% tras el reinicio.
+  const prog = summarize(pending);
+  currentProgress.current = prog.procesados;
+  currentProgress.total = pending.total || storedRecipients.length;
+  currentProgress.status = `⏸️ Campaña interrumpida — ${prog.procesados} de ${currentProgress.total}`;
+  currentProgress.failedEmails = (pending.results || [])
+    .filter((r) => r.status === RESULT_STATUS.ERROR)
+    .map((r) => ({ email: r.email, error: r.reason }));
+  console.warn('[campaña] campaña interrumpida detectada, queda reanudable:', pending.results.length, 'resultados,', storedRecipients.length, 'destinatarios guardados');
 }
 
 // Se guarda la promesa para que el primer `startSend` de este worker espere a
@@ -158,16 +151,26 @@ async function sendEmails(payload) {
  * Foto de la campaña en curso, sin cerrarla ni archivarla.
  *
  * Es lo que permite descargar el avance cuando el envío se pausa porque la
- * cuenta agotó su cuota: el reporte sale con los ya enviados, los que fallaron
- * y —lo importante para retomar— los que todavía no se intentaron, en orden.
+ * cuenta agotó su cuota —y ahora también en cualquier pausa genérica o tras
+ * una interrupción externa—: el reporte sale con los ya enviados, los que
+ * fallaron y —lo importante para retomar— los que todavía no se intentaron,
+ * en orden.
+ *
+ * Si el service worker se reinició, currentCampaign puede estar null en
+ * memoria pero seguir en storage como campaña reanudable: se carga desde
+ * storage para que la descarga siga funcionando.
  *
  * @returns {Promise<Object|null>} null si no hay campaña en curso.
  */
 async function buildCampaignSnapshot() {
-  if (!currentCampaign) return null;
+  let campaign = currentCampaign;
+  if (!campaign) {
+    campaign = await loadCurrent();
+    if (!campaign) return null;
+  }
 
   const allRecipients = await loadRecipients();
-  const attempted = currentCampaign.results.filter(
+  const attempted = campaign.results.filter(
     (r) => r.status === RESULT_STATUS.SENT || r.status === RESULT_STATUS.ERROR
   ).length;
 
@@ -177,12 +180,17 @@ async function buildCampaignSnapshot() {
   }));
 
   // finalizeCampaign no muta: devuelve una copia. La campaña real sigue en
-  // curso y se puede reanudar con la cuenta de relevo.
-  return finalizeCampaign(currentCampaign, {
-    status: currentCampaign.status,
+  // curso y se puede reanudar con la cuenta de relevo o tras una caída.
+  const reason = quotaExhausted
+    ? 'Todavía sin enviar: la cuenta alcanzó su límite diario'
+    : currentCampaign
+      ? 'Pendiente de envío'
+      : 'El envío se interrumpió antes de llegar a este destinatario';
+  return finalizeCampaign(campaign, {
+    status: campaign.status,
     finishedAt: Date.now(),
     remaining,
-    reason: 'Todavía sin enviar: la cuenta alcanzó su límite diario'
+    reason
   });
 }
 
@@ -320,6 +328,189 @@ async function runCampaign(payload, account) {
   const archived = currentCampaign;
   currentCampaign = null;
   return { successCount, errorCount, failedEmails: currentProgress.failedEmails, campaign: archived };
+}
+
+/**
+ * Retoma una campaña que quedó interrumpida (caída de conexión, cierre del
+ * worker, etc.) a partir del Excel que el usuario vuelve a subir. Deduplica
+ * por correo (case-insensitive) para no reenviar a quienes ya figuran como
+ * enviado/error/omitido, y continúa el bucle sobre lo que falta.
+ */
+async function resumeInterruptedCampaign(payload) {
+  if (sendInProgress) {
+    return { error: 'Ya hay un envío en progreso.' };
+  }
+
+  const licenseState = await validateLicense();
+  const gate = computeGateDecision(licenseState, Date.now());
+  if (!gate.allowed) {
+    return { error: `Licencia no válida (${gate.reason}). Abre "Licencia" en el menú.` };
+  }
+
+  const account = await getConnectedAccount();
+  if (!account) {
+    return { error: 'No hay una cuenta de Gmail conectada. Abre "Configuración".' };
+  }
+
+  // La campaña interrumpida puede estar solo en storage si el worker se
+  // reinició: se carga y se pone en memoria para que el resto del flujo
+  // (snapshot, progreso, recordResult) funcione igual que en una campaña viva.
+  let existing = currentCampaign;
+  if (!existing) {
+    existing = await loadCurrent();
+  }
+  if (!existing) {
+    return { error: 'No hay una campaña interrumpida para retomar. Iniciá una nueva.' };
+  }
+  if (!currentCampaign) currentCampaign = existing;
+
+  const uploaded = payload?.recipients || [];
+  if (!Array.isArray(uploaded) || uploaded.length === 0) {
+    return { error: 'Volvé a subir el Excel de la campaña para retomar.' };
+  }
+
+  const remaining = filterRemainingRecipients(uploaded, existing);
+  if (remaining.length === 0) {
+    return { error: 'Todos los destinatarios del Excel ya fueron procesados. Nada para retomar.' };
+  }
+
+  // Reconstruye el progreso a partir de lo ya enviado, para que la barra
+  // no arranque en 0% cuando en realidad ya se había avanzado.
+  const alreadySent = existing.results.filter((r) => r.status === RESULT_STATUS.SENT).length;
+  const alreadyErrors = existing.results.filter((r) => r.status === RESULT_STATUS.ERROR).length;
+  const totalForProgress = existing.total || (uploaded.length + (existing.results.filter((r) => r.status === RESULT_STATUS.OMITTED).length));
+
+  sendInProgress = true;
+  try {
+    return await runResumedCampaign(payload, remaining, account, { alreadySent, alreadyErrors, totalForProgress });
+  } catch (err) {
+    console.error('[campaña] el retomar se interrumpió por un error:', err);
+    currentCampaign = null;
+    broadcastCompletion(currentProgress.current, totalForProgress, `Retomar interrumpido: ${err.message}`);
+    return { error: `El retomar se interrumpió: ${err.message}` };
+  } finally {
+    sendInProgress = false;
+  }
+}
+
+async function runResumedCampaign(payload, remainingRecipients, account, { alreadySent, alreadyErrors, totalForProgress }) {
+  isPaused = false;
+  isCancelled = false;
+  quotaExhausted = false;
+  pausedAccount = null;
+
+  // failedEmails del progreso se reconstruye con los errores previos, para
+  // que el panel de errores no pierda lo anterior al retomar.
+  currentProgress.failedEmails = (currentCampaign.results || [])
+    .filter((r) => r.status === RESULT_STATUS.ERROR)
+    .map((r) => ({ email: r.email, error: r.reason }));
+  currentProgress.current = alreadySent + alreadyErrors;
+  currentProgress.total = totalForProgress;
+
+  const { fromEmail, subject, message, attachments, delaySeconds } = payload;
+  let successCount = alreadySent;
+  let errorCount = alreadyErrors;
+
+  const inlineImages = [];
+  const fileAttachments = [];
+  (attachments || []).forEach((att) => {
+    const [, base64] = att.dataUrl.split(',');
+    const part = { filename: att.name, mimeType: att.type, base64 };
+    if (/^image\//i.test(att.type)) inlineImages.push(part);
+    else fileAttachments.push(part);
+  });
+
+  // No se re-guardarRecipients: se conserva el original para el snapshot por
+  // slice, pero el loop es sobre `remaining` deduplicado por correo.
+  // Mapa de correo normalizado -> índice original en el Excel subido, para
+  // pintar la fila correcta del dashboard (status-row-N).
+  const originalIndexByEmail = new Map();
+  (payload.recipients || []).forEach((item, idx) => {
+    const em = String(resolveEmail(item) || '').trim().toLowerCase();
+    if (em && !originalIndexByEmail.has(em)) originalIndexByEmail.set(em, idx);
+  });
+
+  let index = 0;
+  while (index < remainingRecipients.length) {
+    if (isCancelled) break;
+
+    while (isPaused) {
+      if (isCancelled) break;
+      await keepAlive();
+      await sleep(500);
+    }
+    if (isCancelled) break;
+
+    const recipient = remainingRecipients[index];
+    const recipientEmail = resolveEmail(recipient);
+    const outcome = await sendOne({
+      recipient,
+      recipientEmail,
+      fromEmail,
+      subject,
+      message,
+      inlineImages,
+      fileAttachments
+    });
+
+    if (outcome.kind === 'quota') {
+      await pauseForQuota(outcome.message, currentProgress.current, totalForProgress, successCount);
+      continue;
+    }
+
+    if (outcome.kind === 'ok') {
+      successCount += 1;
+      await recordResult(recipient, recipientEmail, RESULT_STATUS.SENT, '');
+      const originalIdx = originalIndexByEmail.get(String(recipientEmail).trim().toLowerCase());
+      broadcastProgress(currentProgress.current + 1, totalForProgress, `Enviado a ${recipientEmail} (${successCount} OK, ${errorCount} errores)`, originalIdx, true);
+    } else {
+      errorCount += 1;
+      currentProgress.failedEmails.push({ email: recipientEmail, error: outcome.message });
+      await recordResult(recipient, recipientEmail, RESULT_STATUS.ERROR, outcome.message);
+      const originalIdx = originalIndexByEmail.get(String(recipientEmail).trim().toLowerCase());
+      broadcastProgress(currentProgress.current + 1, totalForProgress, `Error en ${recipientEmail}: ${outcome.message}`, originalIdx, false);
+    }
+
+    index += 1;
+    // currentProgress.current ya lo actualiza broadcastProgress, pero para el
+    // cómputo de remaining final se usa el índice sobre remainingRecipients
+    if (index < remainingRecipients.length) {
+      const delayMs = (delaySeconds || 10) * 1000;
+      const steps = delayMs / 500;
+      for (let s = 0; s < steps; s++) {
+        if (isCancelled || isPaused) break;
+        await keepAlive();
+        await sleep(500);
+      }
+    }
+  }
+
+  let finalStatus = `Envío completado: ${successCount} OK, ${errorCount} errores.`;
+  let campaignStatus = CAMPAIGN_STATUS.COMPLETED;
+  let pendingReason = '';
+  if (isCancelled) {
+    finalStatus = `Envío cancelado. ${successCount} OK, ${errorCount} errores.`;
+    campaignStatus = CAMPAIGN_STATUS.CANCELLED;
+    pendingReason = 'Campaña cancelada antes de llegar a este destinatario';
+  }
+
+  const pending = remainingRecipients.slice(index).map((item) => ({
+    email: resolveEmail(item),
+    contactData: item
+  }));
+
+  currentCampaign = finalizeCampaign(currentCampaign, {
+    status: campaignStatus,
+    finishedAt: Date.now(),
+    remaining: pending,
+    reason: pendingReason
+  });
+  await archive(currentCampaign);
+
+  broadcastCompletion(currentProgress.current, totalForProgress, finalStatus);
+  const archived = currentCampaign;
+  currentCampaign = null;
+  return { successCount, errorCount, failedEmails: currentProgress.failedEmails, campaign: archived, resumed: true, remainingCount: remaining.length };
 }
 
 /**
@@ -549,19 +740,47 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.action === 'getState') {
-    sendResponse({
-      sendInProgress,
-      isPaused,
-      isCancelled,
-      quotaExhausted,
-      pausedAccount,
-      ...currentProgress,
-      // Con esto el panel lateral se pone al día si se abre a mitad de campaña.
-      log: currentCampaign ? tailLog(currentCampaign, LIVE_LOG_LIMIT) : [],
-      resultCount: currentCampaign ? currentCampaign.results.length : 0,
-      summary: currentCampaign ? summarize(currentCampaign) : null,
-      account: currentCampaign?.account || null
-    });
+    (async () => {
+      // Si no hay campaña en memoria pero sí en storage (reinicio tras caída),
+      // se expone como reanudable para que el dashboard muestre el banner de
+      // "Retomar" y el botón de descargar reporte.
+      let resumable = null;
+      let resumableRecipientsCount = 0;
+      if (!currentCampaign && !sendInProgress) {
+        const stored = await loadCurrent().catch(() => null);
+        if (stored) {
+          resumable = stored;
+          const recs = await loadRecipients().catch(() => []);
+          resumableRecipientsCount = recs.length;
+        }
+      }
+      // Para campaña reanudable sin bucle vivo, el progreso no está en
+      // currentProgress (que quedó en 0 tras el reinicio si la recuperación aún
+      // no corrió): se deriva del resumen de la campaña almacenada.
+      const effectiveSummary = currentCampaign ? summarize(currentCampaign) : (resumable ? summarize(resumable) : null);
+      const effectiveCurrent = currentCampaign ? currentProgress.current : (resumable ? (effectiveSummary?.procesados ?? 0) : currentProgress.current);
+      const effectiveTotal = currentCampaign ? currentProgress.total : (resumable ? (resumable.total || resumableRecipientsCount || 0) : currentProgress.total);
+      const effectiveStatus = currentCampaign ? currentProgress.status : (resumable ? `⏸️ Campaña interrumpida — ${effectiveCurrent} de ${effectiveTotal}` : currentProgress.status);
+      sendResponse({
+        sendInProgress,
+        isPaused: isPaused || (!!resumable && !sendInProgress),
+        isCancelled,
+        quotaExhausted,
+        pausedAccount,
+        ...currentProgress,
+        current: effectiveCurrent,
+        total: effectiveTotal,
+        status: effectiveStatus,
+        // Con esto el panel lateral se pone al día si se abre a mitad de campaña.
+        log: currentCampaign ? tailLog(currentCampaign, LIVE_LOG_LIMIT) : (resumable ? tailLog(resumable, LIVE_LOG_LIMIT) : []),
+        resultCount: currentCampaign ? currentCampaign.results.length : (resumable ? resumable.results.length : 0),
+        summary: effectiveSummary,
+        account: currentCampaign?.account || resumable?.account || null,
+        hasResumable: !!resumable || (!!currentCampaign && !sendInProgress && currentProgress.current > 0 && currentProgress.current < currentProgress.total),
+        resumable: resumable || (currentCampaign && !sendInProgress ? currentCampaign : null),
+        resumableRecipientsCount: resumable ? resumableRecipientsCount : (currentCampaign && !sendInProgress ? (await loadRecipients().catch(() => [])).length : 0)
+      });
+    })();
     return true;
   }
 
@@ -581,6 +800,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.action === 'GMAIL_CONNECT') {
     (async () => {
       try {
+        const gate = computeGmailConnectGate(await validateLicense(), Date.now());
+        if (!gate.allowed) {
+          sendResponse({ connected: false, error: gate.message });
+          return;
+        }
         const result = await connect({ selectAccount: message.selectAccount === true });
         sendResponse({ connected: true, email: result.email });
       } catch (err) {
@@ -601,6 +825,63 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.action === 'CAMPAIGN_SNAPSHOT') {
     (async () => {
       sendResponse({ campaign: await buildCampaignSnapshot() });
+    })();
+    return true;
+  }
+
+  if (message?.action === 'GET_RESUMABLE') {
+    (async () => {
+      const campaign = currentCampaign || await loadCurrent();
+      if (!campaign) {
+        sendResponse({ resumable: null });
+        return;
+      }
+      const recipients = await loadRecipients();
+      sendResponse({
+        resumable: campaign,
+        recipients,
+        summary: summarize(campaign),
+        remainingEstimate: Math.max(0, (campaign.total || 0) - campaign.results.filter((r) => r.status === RESULT_STATUS.SENT || r.status === RESULT_STATUS.ERROR || r.status === RESULT_STATUS.OMITTED).length)
+      });
+    })();
+    return true;
+  }
+
+  if (message?.action === 'RESUME_INTERRUPTED') {
+    recoveryReady
+      .then(() => resumeInterruptedCampaign(message.payload))
+      .then((result) => sendResponse(result))
+      .catch((err) => sendResponse({ error: err?.message || 'Error al retomar la campaña.' }));
+    return true;
+  }
+
+  if (message?.action === 'DISCARD_RESUMABLE') {
+    (async () => {
+      const pending = currentCampaign || await loadCurrent();
+      if (!pending) {
+        sendResponse({ ok: true });
+        return;
+      }
+      const allRecipients = await loadRecipients();
+      const attempted = pending.results.filter(
+        (r) => r.status === RESULT_STATUS.SENT || r.status === RESULT_STATUS.ERROR
+      ).length;
+      const remaining = allRecipients.slice(attempted).map((item) => ({
+        email: resolveEmail(item),
+        contactData: item
+      }));
+      const closed = finalizeCampaign(pending, {
+        status: CAMPAIGN_STATUS.INTERRUPTED,
+        finishedAt: Date.now(),
+        remaining,
+        reason: 'El envío se interrumpió antes de llegar a este destinatario'
+      });
+      await archive(closed);
+      currentCampaign = null;
+      currentProgress = { current: 0, total: 0, status: 'Listo', failedEmails: [] };
+      isPaused = false;
+      quotaExhausted = false;
+      sendResponse({ ok: true, campaign: closed });
     })();
     return true;
   }

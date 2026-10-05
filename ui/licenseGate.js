@@ -38,6 +38,23 @@ export function computeGateDecision(cachedState, nowMs) {
 }
 
 /**
+ * Conectar Gmail exige licencia vigente. El motivo es el cupo de la app OAuth
+ * sin verificar: Google cuenta cada consentimiento de por vida (100 en total,
+ * sin reseteo), así que alguien que descarga el zip sin licencia no debe poder
+ * gastar uno solo por probar el botón.
+ *
+ * @returns {{allowed: boolean, message: string}} message vacío si se permite.
+ */
+export function computeGmailConnectGate(cachedState, nowMs) {
+    const { allowed } = computeGateDecision(cachedState, nowMs);
+    if (allowed) return { allowed: true, message: '' };
+    return {
+        allowed: false,
+        message: 'Primero activá tu licencia en "Licencia"; después vas a poder conectar tu cuenta de Gmail.'
+    };
+}
+
+/**
  * Aviso de renovación: la licencia vence en 30 días o menos.
  * @param {number|null} daysRemaining
  */
