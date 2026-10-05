@@ -1,12 +1,13 @@
 # MailerPro — guía para Claude Code
 
 Extensión de Chrome (Manifest V3) para envío masivo de correo **directamente
-desde la cuenta de Gmail del usuario** vía Gmail API. v3.2.0, rama `main`.
+desde la cuenta de Gmail del usuario** vía Gmail API. v3.3.0, rama `main`.
 
 ## Comandos
 
 ```bash
-node --test          # suite completa — 99 tests, ~0.4s
+node --test          # suite completa — 115 tests, <1s
+npm run empaquetar   # genera dist/MailerPro-<versión>.zip para la landing
 node --test tests/mimeBuilder.test.js   # un archivo
 ```
 
