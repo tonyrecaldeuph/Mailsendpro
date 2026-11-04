@@ -12,10 +12,10 @@
  * entrega al cliente: cualquier client_secret que viviera acá sería público.
  */
 
-// ID de cliente OAuth (tipo "Aplicación web") del proyecto Mailsendpro en
+// ID de cliente OAuth (tipo "Aplicación web") del proyecto Mailerpro en
 // Google Cloud. No es un secreto: viaja en la URL de autorización y por eso
 // puede vivir en la carpeta que se le entrega al cliente.
-export const CLIENT_ID = '693802762631-lt4bo2h51t992s68d3l5ootr5sg5g378.apps.googleusercontent.com';
+export const CLIENT_ID = '212491886467-kt3j5cocqbrjr6jva33b2lppgfjvjp54.apps.googleusercontent.com';
 
 const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 const USERINFO_ENDPOINT = 'https://www.googleapis.com/oauth2/v3/userinfo';

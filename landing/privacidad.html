@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Política de privacidad — Mailer Pro</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.6 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 46rem; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin-bottom: .25rem; }
+  .fecha { opacity: .7; margin-top: 0; font-size: .95rem; }
+  h2 { margin-top: 2.25rem; font-size: 1.15rem; }
+  ul { padding-left: 1.2rem; }
+  li { margin: .4rem 0; }
+  code { font-size: .92em; }
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid rgba(128,128,128,.35); font-size: .9rem; opacity: .8; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+
+<h1>Política de privacidad de Mailer Pro</h1>
+<p class="fecha">Última actualización: 4 de noviembre de 2026</p>
+
+<p>Mailer Pro es una extensión de Google Chrome desarrollada por Anomalydevs que
+permite enviar campañas de correo desde la propia cuenta de Gmail del usuario.
+Esta política describe qué datos maneja la extensión y qué hace con ellos.</p>
+
+<h2>1. Quiénes somos</h2>
+<p>Anomalydevs. Contacto: <a href="mailto:anomalydevsec@gmail.com">anomalydevsec@gmail.com</a>.</p>
+
+<h2>2. Permisos de Google que solicitamos</h2>
+<ul>
+  <li><code>https://www.googleapis.com/auth/gmail.send</code> — enviar los correos de la
+      campaña desde la cuenta del usuario. Este permiso solo habilita el envío:
+      no da acceso de lectura al buzón.</li>
+  <li><code>https://www.googleapis.com/auth/userinfo.email</code> — leer la dirección de
+      correo de la cuenta conectada, para mostrarla en la interfaz y para que el
+      usuario sepa desde qué casilla está enviando.</li>
+</ul>
+<p>No solicitamos ningún otro permiso de Google. Mailer Pro no puede leer, modificar,
+borrar ni exportar el contenido del buzón del usuario.</p>
+
+<h2>3. Dónde se guardan los datos</h2>
+<p>Mailer Pro no tiene servidor propio de correo ni base de datos de destinatarios.
+Todo lo que el usuario carga permanece en el almacenamiento local del navegador
+(<code>chrome.storage</code>), en su propia computadora:</p>
+<ul>
+  <li>La lista de destinatarios importada desde la planilla de Excel.</li>
+  <li>El asunto, el cuerpo y las imágenes del mensaje.</li>
+  <li>El historial y los reportes de las campañas enviadas.</li>
+  <li>La dirección de correo de la cuenta de Gmail conectada.</li>
+  <li>El token de acceso de Google, que se guarda en la sesión del navegador y
+      caduca a la hora.</li>
+</ul>
+<p>Estos datos no se envían a Anomalydevs ni a ningún tercero. Se borran cuando el
+usuario desinstala la extensión o limpia sus datos desde el panel.</p>
+
+<h2>4. Lo único que sale del navegador</h2>
+<ul>
+  <li><strong>Los correos de la campaña</strong>, que viajan directamente del navegador
+      del usuario a la API de Gmail de Google, con destino a los destinatarios que
+      el usuario eligió.</li>
+  <li><strong>La validación de la licencia</strong>, contra
+      <code>https://licencias.anomalydevs.qzz.io</code>. En esa consulta se envían
+      únicamente la clave de licencia, un identificador aleatorio de dispositivo y
+      una etiqueta del dispositivo. No se envía la dirección de correo del usuario,
+      ni la lista de destinatarios, ni el contenido de los mensajes.</li>
+</ul>
+
+<h2>5. Uso limitado de los datos de Google</h2>
+<p>El uso que Mailer Pro hace de la información recibida de las APIs de Google se
+ajusta a la
+<a href="https://developers.google.com/terms/api-services-user-data-policy">Política
+de Datos del Usuario de los Servicios de API de Google</a>, incluidos sus
+requisitos de Uso Limitado. En concreto:</p>
+<ul>
+  <li>Los datos obtenidos de las APIs de Google se usan solo para proveer y mejorar
+      las funciones visibles para el usuario dentro de la extensión.</li>
+  <li>No transferimos esos datos a terceros, salvo que sea necesario para proveer
+      esas funciones, por motivos de seguridad, o por obligación legal.</li>
+  <li>No usamos esos datos para publicidad, ni los vendemos.</li>
+  <li>Ninguna persona lee esos datos, salvo con el consentimiento expreso del
+      usuario, por motivos de seguridad, para cumplir la ley, o sobre datos
+      agregados y anonimizados.</li>
+</ul>
+
+<h2>6. Responsabilidad sobre los envíos</h2>
+<p>El usuario es el remitente de las campañas y el responsable del contenido que
+envía y de contar con el consentimiento de sus destinatarios. Mailer Pro es una
+herramienta: no provee listas de contactos ni envía nada por su cuenta.</p>
+
+<h2>7. Revocar el acceso</h2>
+<p>El usuario puede desconectar la cuenta desde el propio panel de la extensión, lo
+que revoca el token ante Google. También puede quitar el acceso en cualquier
+momento desde
+<a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</p>
+
+<h2>8. Cambios en esta política</h2>
+<p>Si modificamos esta política, actualizaremos la fecha del encabezado y publicaremos
+la nueva versión en esta misma dirección.</p>
+
+<footer>
+  Anomalydevs · <a href="/">Volver al inicio</a>
+</footer>
+
+</body>
+</html>
