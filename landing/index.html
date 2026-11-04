@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mailer Pro — Envío masivo de correos desde tu propia cuenta de Gmail</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.6 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 46rem; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  h1 { font-size: 2rem; line-height: 1.2; margin-bottom: .25rem; }
+  .sub { font-size: 1.1rem; opacity: .75; margin-top: 0; }
+  h2 { margin-top: 2.5rem; font-size: 1.25rem; }
+  ul { padding-left: 1.2rem; }
+  li { margin: .4rem 0; }
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid rgba(128,128,128,.35); font-size: .9rem; opacity: .8; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+
+<h1>Mailer Pro</h1>
+<p class="sub">Envío masivo de correos desde tu propia cuenta de Gmail.</p>
+
+<p>Mailer Pro es una extensión de Google Chrome para empresas que necesitan mandar
+comunicaciones a muchos destinatarios sin contratar una plataforma de envío
+externa. Los correos salen de tu casilla de Gmail, con tu remitente y tu firma,
+usando la API oficial de Gmail.</p>
+
+<h2>Qué hace</h2>
+<ul>
+  <li>Carga la lista de destinatarios desde una planilla de Excel.</li>
+  <li>Personaliza cada correo con los datos de la planilla.</li>
+  <li>Permite imágenes y formato en el cuerpo del mensaje.</li>
+  <li>Muestra el avance del envío en vivo y deja pausar y retomar la campaña.</li>
+  <li>Genera un reporte final con los envíos exitosos y los rebotados.</li>
+  <li>Si se agota la cuota diaria de Gmail, pausa la campaña en lugar de cancelarla,
+      para que puedas retomarla después o conectar otra casilla.</li>
+</ul>
+
+<h2>Qué permisos pide</h2>
+<p>Al conectar tu cuenta, Google te muestra exactamente dos permisos:</p>
+<ul>
+  <li><strong>Enviar correos en tu nombre</strong> (<code>gmail.send</code>): es la única
+      forma de que las campañas salgan desde tu casilla.</li>
+  <li><strong>Ver tu dirección de correo</strong> (<code>userinfo.email</code>): para
+      mostrarte qué cuenta quedó conectada.</li>
+</ul>
+<p>Mailer Pro <strong>no puede leer tu buzón</strong>. El permiso de lectura no se pide
+y la API de Gmail no se lo otorga.</p>
+
+<h2>Cómo se instala</h2>
+<p>Se descarga el paquete, se descomprime y se carga en
+<code>chrome://extensions</code> con el Modo de desarrollador activado, mediante
+«Cargar extensión sin empaquetar». Después se activa con la clave de licencia que
+entregamos y se conecta la cuenta de Gmail desde el propio panel de la extensión.</p>
+
+<h2>Soporte</h2>
+<p>Escribinos a <a href="mailto:anomalydevsec@gmail.com">anomalydevsec@gmail.com</a>.</p>
+
+<footer>
+  Anomalydevs · <a href="/privacidad.html">Política de privacidad</a>
+</footer>
+
+</body>
+</html>
